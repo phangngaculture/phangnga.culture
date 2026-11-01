@@ -1,0 +1,2982 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import { BookingRequest, Vehicle, User, PassengerDirectoryItem, DriverDirectoryItem } from '../types';
+import { MultiStopRouteVisualizer } from './MultiStopRouteVisualizer';
+import {
+  DEPARTMENTS,
+  POSITIONS,
+  THAI_LOCATIONS,
+  THAI_REGIONS,
+  FREQUENT_DESTINATIONS,
+  FrequentDestination,
+  DEFAULT_PASSENGER_DIRECTORY,
+  DEFAULT_DRIVERS,
+  STORAGE_KEYS,
+  loadSavedData,
+  saveLocalData
+} from '../data/mockData';
+import {
+  formatThaiDate,
+  formatThaiTime,
+  formatThaiDateRange
+} from '../utils/thaiDate';
+import {
+  DEFAULT_OFFICE_ORIGIN,
+  FREQUENT_ORIGINS,
+  GpsCoordinate,
+  getCurrentBrowserGps,
+  resolveCoordinatesFromAddress,
+  calculateTripGpsDistance
+} from '../utils/gpsDistance';
+import {
+  FileText,
+  MapPin,
+  Calendar,
+  Clock,
+  Car,
+  UserCheck,
+  Users,
+  Paperclip,
+  Send,
+  X,
+  Sparkles,
+  Info,
+  Plus,
+  Trash2,
+  Phone,
+  Building,
+  Navigation,
+  Check,
+  CornerDownLeft,
+  ChevronRight,
+  Route,
+  UserPlus,
+  AlertTriangle,
+  LocateFixed,
+  Compass,
+  Crosshair,
+  ShieldAlert,
+  CheckCircle2,
+  AlertCircle,
+  RefreshCw,
+  PenTool,
+  FileSpreadsheet,
+  Image as ImageIcon,
+  Link as LinkIcon,
+  UploadCloud,
+  Globe,
+  ExternalLink,
+  FileCheck2,
+  FileBox,
+  Search
+} from 'lucide-react';
+import { UserSignatureModal } from './UserSignatureModal';
+
+interface BookingFormViewProps {
+  currentUser: User;
+  vehicles: Vehicle[];
+  users?: User[];
+  bookings?: BookingRequest[];
+  editingBooking: BookingRequest | null;
+  initialDate?: string;
+  onSaveBooking: (data: Partial<BookingRequest>, isEdit: boolean) => void;
+  onCancel: () => void;
+  onUpdateUser?: (id: string, data: Partial<User>) => void;
+}
+
+export const BookingFormView: React.FC<BookingFormViewProps> = ({
+  currentUser,
+  vehicles,
+  users = [],
+  bookings = [],
+  editingBooking,
+  initialDate,
+  onSaveBooking,
+  onCancel,
+  onUpdateUser
+}) => {
+  // Form fields - Requester (Always pulled automatically from currentUser profile)
+  const [name, setName] = useState(editingBooking?.name || currentUser.name);
+  const [position, setPosition] = useState(editingBooking?.position || currentUser.position || POSITIONS[0]);
+  const [department, setDepartment] = useState(editingBooking?.department || currentUser.department || DEPARTMENTS[0]);
+
+  // Keep synced with currentUser if not editing an existing booking
+  useEffect(() => {
+    if (!editingBooking) {
+      setName(currentUser.name);
+      setPosition(currentUser.position || POSITIONS[0]);
+      setDepartment(currentUser.department || DEPARTMENTS[0]);
+    }
+  }, [currentUser, editingBooking]);
+  const [purpose, setPurpose] = useState(editingBooking?.purpose || '');
+
+  // Requester Signature State for Memo
+  const [attachSignature, setAttachSignature] = useState<boolean>(true);
+  const [requesterSignature, setRequesterSignature] = useState<string>(
+    editingBooking?.requesterSignature || currentUser.signatureUrl || ''
+  );
+  const [requesterSignatureType, setRequesterSignatureType] = useState<'draw' | 'image' | 'electronic'>(
+    editingBooking?.requesterSignatureType || currentUser.signatureType || 'draw'
+  );
+  const [showSignatureModal, setShowSignatureModal] = useState<boolean>(false);
+
+  // Destination fields (Reordered: Tambon, Amphoe, Province)
+  const [destProvince, setDestProvince] = useState(editingBooking?.destProvince || 'พังงา');
+  const [destAmphoe, setDestAmphoe] = useState(editingBooking?.destAmphoe || 'เมืองพังงา');
+  const [destTambon, setDestTambon] = useState(editingBooking?.destTambon || 'ท้ายช้าง');
+  const [destDetail, setDestDetail] = useState(editingBooking?.destDetail || '');
+
+  // Multi-destination list state
+  const [destinations, setDestinations] = useState<string[]>(() => {
+    if (editingBooking?.destinationsList && editingBooking.destinationsList.length > 0) {
+      return editingBooking.destinationsList;
+    }
+    if (editingBooking?.destDetail) {
+      return [editingBooking.destDetail];
+    }
+    return [];
+  });
+  const [currentDestInput, setCurrentDestInput] = useState<string>('');
+  const [estimatedDistance, setEstimatedDistance] = useState<number>(
+    editingBooking?.estimatedDistance || 0
+  );
+
+  // Dates and timing
+  const [date, setDate] = useState(editingBooking?.date || initialDate || '2026-09-05');
+  const [endDate, setEndDate] = useState(editingBooking?.endDate || initialDate || '2026-09-05');
+  const [startTime, setStartTime] = useState(editingBooking?.startTime || '08:30');
+  const [endTime, setEndTime] = useState(editingBooking?.endTime || '16:30');
+
+  // Vehicle & Driver
+  const [carId, setCarId] = useState(editingBooking?.carId || vehicles[0]?.id || '');
+  const [driverType, setDriverType] = useState<'driver' | 'self'>(editingBooking?.driverType || 'driver');
+  const [driverName, setDriverName] = useState(editingBooking?.driverName || vehicles[0]?.driverName || 'นายศราวุธ เกตุรักษ์');
+
+  // Driver Directory (ทำเนียบพนักงานขับรถ บันทึกเพิ่มและดึงจากระบบ)
+  const [driverDirectory, setDriverDirectory] = useState<DriverDirectoryItem[]>(() => {
+    const saved = loadSavedData<DriverDirectoryItem[]>(STORAGE_KEYS.DRIVERS, DEFAULT_DRIVERS);
+    const vehicleDrivers: DriverDirectoryItem[] = vehicles
+      .filter((v) => v.driverName && !saved.some((d) => d.name === v.driverName))
+      .map((v, idx) => ({
+        id: `veh-drv-${idx}`,
+        name: v.driverName,
+        position: 'พนักงานขับรถประจำคัน',
+        department: 'ฝ่ายบริหารทั่วไป',
+        role: 'driver'
+      }));
+    return [...saved, ...vehicleDrivers];
+  });
+
+  // Modal: Add new driver into directory
+  const [showAddDriverModal, setShowAddDriverModal] = useState(false);
+  const [newDrvName, setNewDrvName] = useState('');
+  const [newDrvPosition, setNewDrvPosition] = useState('พนักงานขับรถยนต์ประจำสำนักงาน');
+  const [newDrvDepartment, setNewDrvDepartment] = useState('ฝ่ายบริหารทั่วไป');
+  const [newDrvPhone, setNewDrvPhone] = useState('');
+  const [addDriverTarget, setAddDriverTarget] = useState<'primary' | 'secondary'>('primary');
+
+  // Modal: Pick user from system
+  const [showUserPickerModal, setShowUserPickerModal] = useState(false);
+  const [userPickerSearch, setUserPickerSearch] = useState('');
+  const [userPickerTarget, setUserPickerTarget] = useState<'primary' | 'secondary'>('primary');
+
+  // Manual custom text toggle for driver name
+  const [isCustomDriverInput, setIsCustomDriverInput] = useState(false);
+
+  // Additional / Assistant Driver (เจ้าหน้าที่ในกลุ่มมาช่วยขับ)
+  const [hasSecondaryDriver, setHasSecondaryDriver] = useState<boolean>(
+    !!editingBooking?.hasSecondaryDriver || !!editingBooking?.secondaryDriverName
+  );
+  const [secondaryDriverName, setSecondaryDriverName] = useState<string>(
+    editingBooking?.secondaryDriverName || ''
+  );
+  const [secondaryDriverId, setSecondaryDriverId] = useState<string>(
+    editingBooking?.secondaryDriverId || ''
+  );
+  const [secondaryDriverPosition, setSecondaryDriverPosition] = useState<string>(
+    editingBooking?.secondaryDriverPosition || ''
+  );
+
+  // Passenger Directory and Selection
+  const [passengerDirectory, setPassengerDirectory] = useState<PassengerDirectoryItem[]>(() => {
+    return loadSavedData(STORAGE_KEYS.PASSENGERS, DEFAULT_PASSENGER_DIRECTORY);
+  });
+
+  // Selected passengers
+  const [selectedPassengers, setSelectedPassengers] = useState<PassengerDirectoryItem[]>(() => {
+    if (editingBooking?.passengerNames) {
+      const names = editingBooking.passengerNames.split(',').map((s) => s.trim()).filter(Boolean);
+      return names.map((nm, idx) => ({
+        id: `prev-${idx}`,
+        name: nm,
+        position: 'ผู้ร่วมเดินทาง',
+        department: 'สำนักงานวัฒนธรรมจังหวัดพังงา'
+      }));
+    }
+    return [];
+  });
+
+  const [passengerCount, setPassengerCount] = useState(editingBooking?.passengerCount || 3);
+  const [passengerNames, setPassengerNames] = useState(editingBooking?.passengerNames || '');
+
+  // Add new passenger modal
+  const [showAddPassengerModal, setShowAddPassengerModal] = useState(false);
+  const [newPsgName, setNewPsgName] = useState('');
+  const [newPsgPosition, setNewPsgPosition] = useState('');
+  const [newPsgDepartment, setNewPsgDepartment] = useState('สำนักงานวัฒนธรรมจังหวัดพังงา');
+  const [newPsgPhone, setNewPsgPhone] = useState('');
+
+  // Attachment state
+  const [attachmentName, setAttachmentName] = useState(editingBooking?.attachmentName || '');
+  const [attachmentUrl, setAttachmentUrl] = useState(editingBooking?.attachmentUrl || '');
+  const [attachmentType, setAttachmentType] = useState<'pdf' | 'word' | 'excel' | 'image' | 'link' | 'other'>(
+    editingBooking?.attachmentType || 'other'
+  );
+  const [attachmentCategory, setAttachmentCategory] = useState<'schedule' | 'order' | 'dispatch' | 'project' | 'other'>(
+    editingBooking?.attachmentCategory || 'schedule'
+  );
+  const [attachmentSize, setAttachmentSize] = useState<string>(editingBooking?.attachmentSize || '');
+  const [attachmentInputMode, setAttachmentInputMode] = useState<'file' | 'link'>('file');
+  const [customLinkUrl, setCustomLinkUrl] = useState('');
+  const [customLinkTitle, setCustomLinkTitle] = useState('');
+  const [isDragOver, setIsDragOver] = useState(false);
+
+  // Helper to auto-detect attachment type from filename or URL
+  const detectFileTypeFromName = (name: string, urlStr?: string): 'pdf' | 'word' | 'excel' | 'image' | 'link' | 'other' => {
+    if (urlStr && (urlStr.startsWith('http://') || urlStr.startsWith('https://'))) {
+      return 'link';
+    }
+    const lower = name.toLowerCase();
+    if (lower.endsWith('.pdf')) return 'pdf';
+    if (lower.endsWith('.doc') || lower.endsWith('.docx') || lower.endsWith('.dotx')) return 'word';
+    if (lower.endsWith('.xls') || lower.endsWith('.xlsx') || lower.endsWith('.csv')) return 'excel';
+    if (lower.match(/\.(jpeg|jpg|png|webp|gif|svg)$/)) return 'image';
+    return 'other';
+  };
+
+  const formatFileSize = (bytes: number): string => {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+  };
+
+  // Helper location objects
+  const currentProvinceObj = useMemo(() => {
+    return THAI_LOCATIONS.find((p) => p.province === destProvince) || THAI_LOCATIONS[0];
+  }, [destProvince]);
+
+  const currentAmphoeObj = useMemo(() => {
+    return (
+      currentProvinceObj?.amphoes?.find((a) => a.amphoe === destAmphoe) ||
+      currentProvinceObj?.amphoes?.[0] || { amphoe: destAmphoe || '', tambons: [] }
+    );
+  }, [currentProvinceObj, destAmphoe]);
+
+  // Combined passenger pool (system users + directory)
+  const availablePassengers = useMemo(() => {
+    const map = new Map<string, PassengerDirectoryItem>();
+
+    // Add passenger directory items
+    passengerDirectory.forEach((p) => {
+      map.set(p.name, p);
+    });
+
+    // Merge system users
+    users.forEach((u) => {
+      if (!map.has(u.name)) {
+        map.set(u.name, {
+          id: u.id,
+          name: u.name,
+          position: u.position,
+          department: u.department,
+          phone: u.phone,
+          isDefault: true
+        });
+      }
+    });
+
+    return Array.from(map.values());
+  }, [users, passengerDirectory]);
+
+  useEffect(() => {
+    if (editingBooking) {
+      setName(editingBooking.name);
+      setPosition(editingBooking.position);
+      setDepartment(editingBooking.department);
+      setPurpose(editingBooking.purpose);
+      setDestProvince(editingBooking.destProvince);
+      setDestAmphoe(editingBooking.destAmphoe);
+      setDestTambon(editingBooking.destTambon);
+      setDestDetail(editingBooking.destDetail);
+      if (editingBooking.destinationsList && editingBooking.destinationsList.length > 0) {
+        setDestinations(editingBooking.destinationsList);
+      } else if (editingBooking.destDetail) {
+        setDestinations([editingBooking.destDetail]);
+      }
+      setEstimatedDistance(editingBooking.estimatedDistance || 0);
+      setDate(editingBooking.date);
+      setEndDate(editingBooking.endDate || editingBooking.date);
+      setStartTime(editingBooking.startTime);
+      setEndTime(editingBooking.endTime);
+      setCarId(editingBooking.carId);
+      setDriverName(editingBooking.driverName);
+      setPassengerCount(editingBooking.passengerCount);
+      setPassengerNames(editingBooking.passengerNames || '');
+      setAttachmentName(editingBooking.attachmentName || '');
+      setAttachmentUrl(editingBooking.attachmentUrl || '');
+      setAttachmentType(editingBooking.attachmentType || detectFileTypeFromName(editingBooking.attachmentName || '', editingBooking.attachmentUrl));
+      setAttachmentCategory(editingBooking.attachmentCategory || 'schedule');
+      setAttachmentSize(editingBooking.attachmentSize || '');
+      if (editingBooking.attachmentUrl && (editingBooking.attachmentUrl.startsWith('http://') || editingBooking.attachmentUrl.startsWith('https://'))) {
+        setAttachmentInputMode('link');
+        setCustomLinkUrl(editingBooking.attachmentUrl);
+        setCustomLinkTitle(editingBooking.attachmentName || '');
+      } else {
+        setAttachmentInputMode('file');
+      }
+    }
+  }, [editingBooking]);
+
+  // GPS Calculator State
+  const [originGps, setOriginGps] = useState<GpsCoordinate>(DEFAULT_OFFICE_ORIGIN);
+  const [isGettingGps, setIsGettingGps] = useState(false);
+  const [gpsError, setGpsError] = useState<string | null>(null);
+  const [gpsSuccessMsg, setGpsSuccessMsg] = useState<string | null>(null);
+  const [isRoundTrip, setIsRoundTrip] = useState<boolean>(true);
+  // Must mirror the actual return type of calculateTripGpsDistance in utils/gpsDistance.ts,
+  // which returns no `oneWayKm` and includes durationText/straightLineKm in each leg.
+  const [gpsCalculationResult, setGpsCalculationResult] = useState<{
+    totalDistanceKm: number;
+    straightLineKm: number;
+    estimatedDurationText: string;
+    legs: Array<{ from: string; to: string; distanceKm: number; durationText: string; straightLineKm: number }>;
+  } | null>(null);
+
+  // Real-time Collision Detection: Checks whenever carId, date, endDate, startTime, or endTime changes
+  const conflictingBookings = useMemo(() => {
+    if (!carId || !date) return [];
+    const reqStart = new Date(`${date}T${startTime || '00:00'}:00`).getTime();
+    const reqEnd = new Date(`${endDate || date}T${endTime || '23:59'}:00`).getTime();
+
+    return bookings.filter((b) => {
+      if (editingBooking && b.id === editingBooking.id) return false;
+      if (b.status === 'rejected' || b.status === 'cancelled') return false;
+      if (b.carId !== carId) return false;
+
+      const bStart = new Date(`${b.date}T${b.startTime || '00:00'}:00`).getTime();
+      const bEnd = new Date(`${b.endDate || b.date}T${b.endTime || '23:59'}:00`).getTime();
+
+      // Check overlap: StartA < EndB && EndA > StartB
+      return reqStart < bEnd && reqEnd > bStart;
+    });
+  }, [bookings, carId, date, endDate, startTime, endTime, editingBooking]);
+
+  const hasCollision = conflictingBookings.length > 0;
+
+  // Vehicle Availability Map for the current selected time window
+  const vehicleAvailability = useMemo(() => {
+    const map = new Map<string, { isAvailable: boolean; conflict?: BookingRequest }>();
+    const reqStart = new Date(`${date}T${startTime || '00:00'}:00`).getTime();
+    const reqEnd = new Date(`${endDate || date}T${endTime || '23:59'}:00`).getTime();
+
+    vehicles.forEach((v) => {
+      const conflict = bookings.find((b) => {
+        if (editingBooking && b.id === editingBooking.id) return false;
+        if (b.status === 'rejected' || b.status === 'cancelled') return false;
+        if (b.carId !== v.id) return false;
+
+        const bStart = new Date(`${b.date}T${b.startTime || '00:00'}:00`).getTime();
+        const bEnd = new Date(`${b.endDate || b.date}T${b.endTime || '23:59'}:00`).getTime();
+        return reqStart < bEnd && reqEnd > bStart;
+      });
+
+      map.set(v.id, {
+        isAvailable: !conflict,
+        conflict
+      });
+    });
+    return map;
+  }, [vehicles, bookings, date, endDate, startTime, endTime, editingBooking]);
+
+  // First available alternative vehicle without collision
+  const availableAlternativeVehicle = useMemo(() => {
+    return vehicles.find((v) => vehicleAvailability.get(v.id)?.isAvailable && v.id !== carId);
+  }, [vehicles, vehicleAvailability, carId]);
+
+  const [showCollisionModal, setShowCollisionModal] = useState(false);
+
+  // Switch to suggested available vehicle
+  const handleSwitchToAvailableVehicle = (altVehicle: Vehicle) => {
+    setCarId(altVehicle.id);
+    if (driverType === 'driver') {
+      setDriverName(altVehicle.driverName);
+    }
+    setShowCollisionModal(false);
+  };
+
+  // GPS geolocation fetcher
+  const handleGetBrowserGps = async () => {
+    setIsGettingGps(true);
+    setGpsError(null);
+    setGpsSuccessMsg(null);
+    try {
+      const gps = await getCurrentBrowserGps();
+      const newOrigin: GpsCoordinate = {
+        name: `ตำแหน่งปัจจุบัน (${gps.lat.toFixed(4)}, ${gps.lng.toFixed(4)})`,
+        lat: gps.lat,
+        lng: gps.lng,
+        description: `พิกัดดาวเทียม GPS ความแม่นยำ ±${gps.accuracy} ม.`
+      };
+      setOriginGps(newOrigin);
+      setGpsSuccessMsg(`รับสัญญาณ GPS สำเร็จ: ละติจูด ${gps.lat}, ลองจิจูด ${gps.lng} (±${gps.accuracy} ม.)`);
+      setTimeout(() => setGpsSuccessMsg(null), 5000);
+    } catch (err: any) {
+      setGpsError(err.message || 'ไม่สามารถดึงตำแหน่ง GPS ได้');
+      setTimeout(() => setGpsError(null), 6000);
+    } finally {
+      setIsGettingGps(false);
+    }
+  };
+
+  // GPS route & distance calculator
+  const handleCalculateGpsDistance = () => {
+    const stops = destinations.length > 0 ? destinations : (destDetail ? [destDetail] : []);
+    let destCoords: Array<{ lat: number; lng: number; name: string }> = [];
+
+    if (stops.length > 0) {
+      destCoords = stops.map((s) => {
+        const resolved = resolveCoordinatesFromAddress(destProvince, destAmphoe, s);
+        return {
+          lat: resolved.lat,
+          lng: resolved.lng,
+          name: s
+        };
+      });
+    } else {
+      const resolved = resolveCoordinatesFromAddress(destProvince, destAmphoe);
+      destCoords = [{
+        lat: resolved.lat,
+        lng: resolved.lng,
+        name: resolved.name
+      }];
+    }
+
+    const result = calculateTripGpsDistance(originGps, destCoords, isRoundTrip);
+    setGpsCalculationResult(result);
+    setEstimatedDistance(result.totalDistanceKm);
+  };
+
+  // When vehicle changes, auto set driver
+  const handleCarChange = (newCarId: string) => {
+    setCarId(newCarId);
+    const chosen = vehicles.find((v) => v.id === newCarId);
+    if (chosen && driverType === 'driver') {
+      setDriverName(chosen.driverName);
+    }
+  };
+
+  // Add typed destination to list (by clicking button or pressing Enter)
+  const handleAddDestination = () => {
+    const trimmed = currentDestInput.trim();
+    if (!trimmed) return;
+
+    if (!destinations.includes(trimmed)) {
+      const updated = [...destinations, trimmed];
+      setDestinations(updated);
+
+      // Check if matches a frequent destination to auto add distance
+      const matched = FREQUENT_DESTINATIONS.find(
+        (f) => f.name === trimmed || f.shortName === trimmed || trimmed.includes(f.shortName)
+      );
+      if (matched) {
+        setEstimatedDistance((prev) => (prev > 0 ? prev + matched.distanceKm : matched.distanceKm));
+        setDestProvince(matched.province);
+        setDestAmphoe(matched.amphoe);
+        setDestTambon(matched.tambon);
+      }
+    }
+    setCurrentDestInput('');
+  };
+
+  const handleKeyDownDestination = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleAddDestination();
+    }
+  };
+
+  // Select a frequent destination
+  const handleSelectFrequentDest = (freq: FrequentDestination) => {
+    if (!destinations.includes(freq.name)) {
+      setDestinations((prev) => [...prev, freq.name]);
+      setEstimatedDistance((prev) => (prev > 0 ? prev + freq.distanceKm : freq.distanceKm));
+      setDestProvince(freq.province);
+      setDestAmphoe(freq.amphoe);
+      setDestTambon(freq.tambon);
+    }
+  };
+
+  // Remove a destination
+  const handleRemoveDestination = (index: number) => {
+    const target = destinations[index];
+    const updated = destinations.filter((_, i) => i !== index);
+    setDestinations(updated);
+
+    const matched = FREQUENT_DESTINATIONS.find((f) => f.name === target);
+    if (matched) {
+      setEstimatedDistance((prev) => Math.max(0, prev - matched.distanceKm));
+    }
+  };
+
+  // Passenger selection from available pool
+  const handleSelectPassenger = (psgName: string) => {
+    if (!psgName) return;
+    const found = availablePassengers.find((p) => p.name === psgName);
+    if (!found) return;
+
+    if (!selectedPassengers.some((p) => p.name === found.name)) {
+      const nextSelected = [...selectedPassengers, found];
+      setSelectedPassengers(nextSelected);
+      const namesStr = nextSelected.map((p) => p.name).join(', ');
+      setPassengerNames(namesStr);
+      setPassengerCount(Math.max(passengerCount, nextSelected.length));
+    }
+  };
+
+  const handleRemovePassenger = (index: number) => {
+    const nextSelected = selectedPassengers.filter((_, i) => i !== index);
+    setSelectedPassengers(nextSelected);
+    const namesStr = nextSelected.map((p) => p.name).join(', ');
+    setPassengerNames(namesStr);
+    setPassengerCount(Math.max(1, nextSelected.length));
+  };
+
+  // Save new passenger to directory in localStorage & system
+  const handleSaveNewPassenger = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newPsgName.trim()) return;
+
+    const newPsg: PassengerDirectoryItem = {
+      id: `psg-${Date.now()}`,
+      name: newPsgName.trim(),
+      position: newPsgPosition.trim() || 'ผู้ร่วมเดินทาง',
+      department: newPsgDepartment.trim() || 'สำนักงานวัฒนธรรมจังหวัดพังงา',
+      phone: newPsgPhone.trim() || undefined,
+      isDefault: false
+    };
+
+    const updatedDir = [...passengerDirectory, newPsg];
+    setPassengerDirectory(updatedDir);
+    saveLocalData(STORAGE_KEYS.PASSENGERS, updatedDir);
+
+    // Also add to current selected passengers
+    if (!selectedPassengers.some((p) => p.name === newPsg.name)) {
+      const nextSelected = [...selectedPassengers, newPsg];
+      setSelectedPassengers(nextSelected);
+      const namesStr = nextSelected.map((p) => p.name).join(', ');
+      setPassengerNames(namesStr);
+      setPassengerCount(Math.max(passengerCount, nextSelected.length));
+    }
+
+    setNewPsgName('');
+    setNewPsgPosition('');
+    setNewPsgDepartment('สำนักงานวัฒนธรรมจังหวัดพังงา');
+    setNewPsgPhone('');
+    setShowAddPassengerModal(false);
+  };
+
+  // Save new driver to directory in localStorage & system
+  const handleSaveNewDriver = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const trimmed = newDrvName.trim();
+    if (!trimmed) return;
+
+    const existing = driverDirectory.find((d) => d.name.trim() === trimmed);
+    let updated = driverDirectory;
+    if (!existing) {
+      const newDrv: DriverDirectoryItem = {
+        id: `drv-${Date.now()}`,
+        name: trimmed,
+        position: newDrvPosition.trim() || 'พนักงานขับรถยนต์ราชการ',
+        department: newDrvDepartment.trim() || 'ฝ่ายบริหารทั่วไป',
+        phone: newDrvPhone.trim() || undefined,
+        role: 'driver',
+        addedAt: new Date().toISOString()
+      };
+      updated = [...driverDirectory, newDrv];
+      setDriverDirectory(updated);
+      saveLocalData(STORAGE_KEYS.DRIVERS, updated);
+    }
+
+    if (addDriverTarget === 'primary') {
+      setDriverName(trimmed);
+      setIsCustomDriverInput(false);
+    } else {
+      setSecondaryDriverName(trimmed);
+      setSecondaryDriverPosition(newDrvPosition.trim() || 'ผู้ช่วยขับขี่');
+      setHasSecondaryDriver(true);
+    }
+
+    setShowAddDriverModal(false);
+    setNewDrvName('');
+    setNewDrvPosition('พนักงานขับรถยนต์ประจำสำนักงาน');
+    setNewDrvDepartment('ฝ่ายบริหารทั่วไป');
+    setNewDrvPhone('');
+  };
+
+  // Select a user from system (ทำเนียบบุคลากร) as driver
+  const handleSelectSystemUserAsDriver = (user: User) => {
+    if (userPickerTarget === 'primary') {
+      setDriverName(user.name);
+      setIsCustomDriverInput(false);
+    } else {
+      setSecondaryDriverName(user.name);
+      setSecondaryDriverId(user.id);
+      setSecondaryDriverPosition(user.position || user.roleTitle || '');
+      setHasSecondaryDriver(true);
+    }
+    setShowUserPickerModal(false);
+  };
+
+  // Filtered system users for picker modal
+  const filteredSystemUsers = useMemo(() => {
+    if (!userPickerSearch.trim()) return users;
+    const q = userPickerSearch.toLowerCase().trim();
+    return users.filter(
+      (u) =>
+        u.name.toLowerCase().includes(q) ||
+        (u.position && u.position.toLowerCase().includes(q)) ||
+        (u.department && u.department.toLowerCase().includes(q)) ||
+        (u.roleTitle && u.roleTitle.toLowerCase().includes(q))
+    );
+  }, [users, userPickerSearch]);
+
+  // Assemble full destination string
+  const assembleDestination = () => {
+    const allStops = destinations.length > 0 ? destinations : (destDetail ? [destDetail] : []);
+
+    let addressStr = '';
+    if (destProvince === 'กรุงเทพมหานคร') {
+      if (destTambon) addressStr += `แขวง${destTambon} `;
+      if (destAmphoe) addressStr += `เขต${destAmphoe} `;
+      addressStr += `กรุงเทพมหานคร`;
+    } else {
+      if (destTambon) addressStr += `ต.${destTambon} `;
+      if (destAmphoe) addressStr += `อ.${destAmphoe} `;
+      if (destProvince) addressStr += `จ.${destProvince}`;
+    }
+    addressStr = addressStr.trim();
+
+    if (allStops.length > 1) {
+      const stopsJoined = allStops.map((s, idx) => `${idx + 1}. ${s}`).join(' ');
+      let res = `${stopsJoined} (${addressStr})`;
+      if (estimatedDistance > 0) {
+        res += ` [ระยะทางรวมประมาณ ${estimatedDistance} กม.]`;
+      }
+      return res;
+    }
+
+    const singleLoc = allStops[0] || '';
+    let res = addressStr;
+    if (singleLoc) {
+      res = `${singleLoc} (${addressStr})`;
+    }
+    if (estimatedDistance > 0) {
+      res += ` [ระยะทางประมาณ ${estimatedDistance} กม.]`;
+    }
+    return res;
+  };
+
+  const [bypassCollisionConfirm, setBypassCollisionConfirm] = useState(false);
+
+  const executeSaveBooking = () => {
+    // Include any remaining typed destination in input if not yet added
+    let finalDestinations = [...destinations];
+    if (currentDestInput.trim() && !finalDestinations.includes(currentDestInput.trim())) {
+      finalDestinations.push(currentDestInput.trim());
+    }
+
+    const chosenCar = vehicles.find((v) => v.id === carId);
+    const fullDestination = assembleDestination();
+
+    const bookingData: Partial<BookingRequest> = {
+      name,
+      position,
+      department,
+      purpose,
+      destination: fullDestination,
+      destProvince,
+      destAmphoe,
+      destTambon,
+      destDetail: finalDestinations.length > 0 ? finalDestinations.join(', ') : destDetail,
+      destinationsList: finalDestinations,
+      estimatedDistance: Number(estimatedDistance) || 0,
+      date,
+      endDate,
+      startTime,
+      endTime,
+      carId,
+      carName: chosenCar ? `${chosenCar.name} (${chosenCar.plate})` : 'รถยนต์ราชการ',
+      driverType,
+      driverName: driverType === 'self' ? `${name} (ผู้ขอขับขี่ด้วยตนเอง)` : driverName,
+      driverId: driverType === 'self'
+        ? currentUser.id
+        : (users.find((u) => u.name === driverName)?.id || driverDirectory.find((d) => d.name === driverName)?.userId || editingBooking?.driverId),
+      driverUsername: driverType === 'self'
+        ? currentUser.username
+        : (users.find((u) => u.name === driverName)?.username || driverDirectory.find((d) => d.name === driverName)?.username || editingBooking?.driverUsername),
+      hasSecondaryDriver: hasSecondaryDriver && !!secondaryDriverName.trim(),
+      secondaryDriverName: hasSecondaryDriver && secondaryDriverName.trim() ? secondaryDriverName.trim() : undefined,
+      secondaryDriverId: hasSecondaryDriver && secondaryDriverName.trim() && secondaryDriverId ? secondaryDriverId : undefined,
+      secondaryDriverPosition: hasSecondaryDriver && secondaryDriverName.trim() && secondaryDriverPosition.trim() ? secondaryDriverPosition.trim() : undefined,
+      passengerCount: Number(passengerCount),
+      passengerNames: selectedPassengers.length > 0
+        ? selectedPassengers.map((p) => p.name).join(', ')
+        : passengerNames,
+      attachmentName: attachmentName || '',
+      attachmentUrl: attachmentUrl || '',
+      attachmentType: attachmentName ? (attachmentType || detectFileTypeFromName(attachmentName, attachmentUrl)) : undefined,
+      attachmentCategory: attachmentName ? (attachmentCategory || 'schedule') : undefined,
+      attachmentSize: attachmentName ? attachmentSize : undefined,
+      status: editingBooking?.status || 'pending',
+      requesterSignature: attachSignature ? (requesterSignature || currentUser.signatureUrl || undefined) : undefined,
+      requesterSignatureType: attachSignature ? requesterSignatureType : undefined,
+      requesterSignedAt: attachSignature ? (editingBooking?.requesterSignedAt || new Date().toISOString()) : undefined
+    };
+
+    onSaveBooking(bookingData, !!editingBooking);
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+
+    // Real-time collision check: If a collision exists, show modal warning first
+    if (hasCollision && !bypassCollisionConfirm) {
+      setShowCollisionModal(true);
+      return;
+    }
+
+    setBypassCollisionConfirm(false);
+    executeSaveBooking();
+  };
+
+  return (
+    <div className="max-w-4xl mx-auto space-y-6 pb-12">
+      
+      {/* Header */}
+      <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs flex items-center justify-between">
+        <div className="flex items-center space-x-3">
+          <div className="w-12 h-12 rounded-xl bg-orange-500/10 text-orange-600 flex items-center justify-center">
+            <FileText className="w-6 h-6" />
+          </div>
+          <div>
+            <h2 className="text-base md:text-lg font-bold text-slate-900">
+              {editingBooking ? 'แก้ไขแบบคำขอใช้รถยนต์ราชการ' : 'แบบฟอร์มขออนุมัติใช้รถยนต์ราชการ'}
+            </h2>
+            <p className="text-xs text-slate-500">
+              สำนักงานวัฒนธรรมจังหวัดพังงา • ใบคำขอขอใช้รถยนต์ส่วนกลางอิเล็กทรอนิกส์
+            </p>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={onCancel}
+          className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition"
+        >
+          <X className="w-5 h-5" />
+        </button>
+      </div>
+
+      <form onSubmit={handleSubmit} className="space-y-6">
+
+        {/* Section 1: Requester Information */}
+        <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div className="flex items-center space-x-2">
+              <UserCheck className="w-4 h-4 text-orange-600" />
+              <h3 className="font-bold text-xs md:text-sm text-slate-900">๑. ข้อมูลผู้ขอใช้ยานพาหนะ</h3>
+            </div>
+            <span className="text-[11px] bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-md font-medium border border-emerald-200 flex items-center space-x-1">
+              <Check className="w-3.5 h-3.5" />
+              <span>ดึงชื่อ นามสกุล กลุ่ม ตำแหน่ง จากระบบอัตโนมัติ</span>
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-slate-50/90 border border-slate-200 rounded-xl p-3.5 shadow-xs">
+              <span className="text-[11px] text-slate-400 font-medium block mb-1">ชื่อ-นามสกุลผู้ขอ</span>
+              <span className="font-bold text-slate-900 text-sm md:text-base">{currentUser.name}</span>
+            </div>
+
+            <div className="bg-slate-50/90 border border-slate-200 rounded-xl p-3.5 shadow-xs">
+              <span className="text-[11px] text-slate-400 font-medium block mb-1">ตำแหน่ง</span>
+              <span className="font-bold text-slate-900 text-sm md:text-base">{currentUser.position || position || POSITIONS[0]}</span>
+            </div>
+
+            <div className="bg-slate-50/90 border border-slate-200 rounded-xl p-3.5 shadow-xs">
+              <span className="text-[11px] text-slate-400 font-medium block mb-1">ฝ่าย / กลุ่มงาน</span>
+              <span className="font-bold text-slate-900 text-sm md:text-base">{currentUser.department || department || DEPARTMENTS[0]}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Section 2: Purpose */}
+        <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs space-y-4">
+          <div className="flex items-center space-x-2 border-b border-slate-100 pb-3">
+            <Sparkles className="w-4 h-4 text-orange-600" />
+            <h3 className="font-bold text-xs md:text-sm text-slate-900">๒. วัตถุประสงค์และภารกิจ</h3>
+          </div>
+
+          <div className="space-y-3">
+            <div>
+              <label className="block text-[11px] text-slate-500 font-medium mb-1.5">
+                เลือกจากภารกิจงานวัฒนธรรมที่พบบ่อย (คลิกเพื่อระบุอัตโนมัติ):
+              </label>
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  'ตรวจติดตามงานโครงการลานธรรม ลานวิถีไทย',
+                  'ร่วมพิธีบวงสรวงและงานประเพณีทางศาสนาและวัฒนธรรม',
+                  'สำรวจแหล่งมรดกทางวัฒนธรรมและภูมิปัญญาท้องถิ่น',
+                  'เข้าร่วมประชุมราชการและประสานงาน ณ ศาลากลางจังหวัดพังงา',
+                  'จัดกิจกรรมส่งเสริมคุณธรรม จริยธรรม และวิถีถิ่นพังงา',
+                  'ปฏิบัติงานโครงการชุมชนคุณธรรมและประเพณีท้องถิ่น'
+                ].map((preset, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => setPurpose(preset)}
+                    className="text-[11px] px-2.5 py-1 bg-slate-100 hover:bg-orange-50 hover:text-orange-700 hover:border-orange-300 border border-slate-200 rounded-lg transition text-slate-700 font-medium"
+                  >
+                    + {preset.slice(0, 32)}...
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="block font-medium text-slate-700 mb-1.5 text-xs md:text-sm">
+                ระบุวัตถุประสงค์ / ความจำเป็นที่ต้องเดินทาง *
+              </label>
+              <textarea
+                required
+                rows={3}
+                value={purpose}
+                onChange={(e) => setPurpose(e.target.value)}
+                placeholder="ระบุภารกิจ วาระงาน หรือรายละเอียดการเดินทาง..."
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3.5 text-xs md:text-sm text-slate-800 focus:bg-white focus:ring-2 focus:ring-orange-500 focus:outline-none leading-relaxed"
+              />
+            </div>
+
+            {/* Attachment Section (เอกสารแนบจากเครื่อง: กำหนดการ, หนังสือคำสั่ง, หนังสือส่ง, ลิงก์) */}
+            <div className="pt-2 border-t border-slate-100 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+                <label className="font-semibold text-slate-800 text-xs md:text-sm flex items-center space-x-2">
+                  <Paperclip className="w-4 h-4 text-orange-600 shrink-0" />
+                  <span>เอกสารแนบประกอบภารกิจ (ถ้ามี)</span>
+                </label>
+                <span className="text-[11px] text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md font-medium">
+                  รองรับ PDF, Word (.docx), Excel (.xlsx), รูปภาพ และลิงก์ออนไลน์
+                </span>
+              </div>
+
+              {/* Document Category Selector */}
+              <div className="bg-slate-50/80 p-3 rounded-xl border border-slate-200/80 space-y-2">
+                <div className="text-[11px] font-bold text-slate-700 flex items-center justify-between">
+                  <span>เลือกประเภทเอกสารแนบ:</span>
+                  <span className="text-[10px] text-slate-400">เช่น กำหนดการ, หนังสือคำสั่ง, หนังสือส่ง</span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                  {[
+                    { id: 'schedule', label: '📌 กำหนดการ / แผนงาน', desc: 'ตารางเวลาและกำหนดการ' },
+                    { id: 'order', label: '📜 หนังสือคำสั่ง', desc: 'คำสั่งปฏิบัติราชการ' },
+                    { id: 'dispatch', label: '📨 หนังสือส่ง / เชิญ', desc: 'หนังสือเชิญประชุม/หนังสือส่ง' },
+                    { id: 'project', label: '📋 โครงการ / อื่นๆ', desc: 'เอกสารประกอบโครงการ' },
+                  ].map((cat) => {
+                    const isSelected = attachmentCategory === cat.id;
+                    return (
+                      <button
+                        key={cat.id}
+                        type="button"
+                        onClick={() => setAttachmentCategory(cat.id as any)}
+                        className={`p-2 rounded-xl text-left transition border cursor-pointer ${
+                          isSelected
+                            ? 'bg-orange-600 text-white border-orange-600 shadow-xs'
+                            : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200'
+                        }`}
+                      >
+                        <div className="text-xs font-bold truncate">{cat.label}</div>
+                        <div className={`text-[10px] truncate ${isSelected ? 'text-orange-100' : 'text-slate-400'}`}>
+                          {cat.desc}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Input Mode Selector (Upload File vs Cloud Link) */}
+              <div className="flex items-center space-x-2 border-b border-slate-200 pb-2">
+                <button
+                  type="button"
+                  onClick={() => setAttachmentInputMode('file')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer ${
+                    attachmentInputMode === 'file'
+                      ? 'bg-orange-50 text-orange-700 border border-orange-200'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <UploadCloud className="w-3.5 h-3.5" />
+                  <span>อัปโหลดไฟล์จากเครื่อง (PDF / Word / Excel / รูปภาพ)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAttachmentInputMode('link')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer ${
+                    attachmentInputMode === 'link'
+                      ? 'bg-orange-50 text-orange-700 border border-orange-200'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <Globe className="w-3.5 h-3.5" />
+                  <span>แนบเป็นลิงก์ (Google Drive / OneDrive / ระบบสารบรรณ)</span>
+                </button>
+              </div>
+
+              {/* Active Attachment Preview Card (If already attached) */}
+              {attachmentName ? (
+                <div className="p-3.5 bg-gradient-to-r from-orange-50/90 via-amber-50/50 to-orange-50/90 border border-orange-200 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
+                  <div className="flex items-center space-x-3 min-w-0">
+                    <div
+                      className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 shadow-2xs ${
+                        attachmentType === 'pdf'
+                          ? 'bg-red-100 text-red-700 border border-red-200'
+                          : attachmentType === 'word'
+                          ? 'bg-blue-100 text-blue-700 border border-blue-200'
+                          : attachmentType === 'excel'
+                          ? 'bg-emerald-100 text-emerald-700 border border-emerald-200'
+                          : attachmentType === 'image'
+                          ? 'bg-purple-100 text-purple-700 border border-purple-200'
+                          : 'bg-teal-100 text-teal-700 border border-teal-200'
+                      }`}
+                    >
+                      {attachmentType === 'pdf' && <FileText className="w-5 h-5 text-red-600" />}
+                      {attachmentType === 'word' && <FileText className="w-5 h-5 text-blue-600" />}
+                      {attachmentType === 'excel' && <FileSpreadsheet className="w-5 h-5 text-emerald-600" />}
+                      {attachmentType === 'image' && <ImageIcon className="w-5 h-5 text-purple-600" />}
+                      {(attachmentType === 'link' || attachmentType === 'other') && <Globe className="w-5 h-5 text-teal-600" />}
+                    </div>
+
+                    <div className="min-w-0">
+                      <div className="flex items-center space-x-1.5 flex-wrap gap-1">
+                        <span className="font-bold text-xs md:text-sm text-slate-900 truncate max-w-xs sm:max-w-md">
+                          {attachmentName}
+                        </span>
+                        <span
+                          className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${
+                            attachmentType === 'pdf'
+                              ? 'bg-red-50 text-red-700 border border-red-200'
+                              : attachmentType === 'word'
+                              ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                              : attachmentType === 'excel'
+                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                              : attachmentType === 'image'
+                              ? 'bg-purple-50 text-purple-700 border border-purple-200'
+                              : 'bg-teal-50 text-teal-700 border border-teal-200'
+                          }`}
+                        >
+                          {attachmentType === 'pdf'
+                            ? 'PDF Document'
+                            : attachmentType === 'word'
+                            ? 'Word Document (.docx)'
+                            : attachmentType === 'excel'
+                            ? 'Excel Spreadsheet (.xlsx)'
+                            : attachmentType === 'image'
+                            ? 'Image File'
+                            : 'Online Link'}
+                        </span>
+                        {attachmentSize && (
+                          <span className="text-[10px] text-slate-400">({attachmentSize})</span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-slate-600 mt-0.5 flex items-center space-x-1">
+                        <span>หมวดหมู่:</span>
+                        <span className="font-semibold text-orange-700">
+                          {attachmentCategory === 'schedule'
+                            ? 'กำหนดการ / แผนการเดินทาง'
+                            : attachmentCategory === 'order'
+                            ? 'หนังสือคำสั่งปฏิบัติราชการ'
+                            : attachmentCategory === 'dispatch'
+                            ? 'หนังสือส่ง / หนังสือเชิญ'
+                            : 'โครงการ / เอกสารอื่นๆ'}
+                        </span>
+                        {attachmentUrl && (attachmentUrl.startsWith('http://') || attachmentUrl.startsWith('https://')) && (
+                          <span className="text-teal-600 underline font-mono text-[10px] truncate max-w-[200px]">
+                            {attachmentUrl}
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center space-x-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAttachmentName('');
+                        setAttachmentUrl('');
+                        setAttachmentSize('');
+                        setCustomLinkUrl('');
+                        setCustomLinkTitle('');
+                      }}
+                      className="px-3 py-1.5 bg-white hover:bg-rose-50 text-rose-600 hover:text-rose-700 border border-slate-200 hover:border-rose-200 rounded-xl text-xs font-semibold transition flex items-center space-x-1 shadow-2xs cursor-pointer"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>ลบออก</span>
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              {/* Mode 1: File Upload (Drag and Drop / File Input) */}
+              {attachmentInputMode === 'file' && (
+                <div
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setIsDragOver(true);
+                  }}
+                  onDragLeave={() => setIsDragOver(false)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setIsDragOver(false);
+                    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                      const file = e.dataTransfer.files[0];
+                      const detected = detectFileTypeFromName(file.name);
+                      setAttachmentName(file.name);
+                      setAttachmentType(detected);
+                      setAttachmentSize(formatFileSize(file.size));
+                      const reader = new FileReader();
+                      reader.onload = (uploadEvent) => {
+                        if (uploadEvent.target?.result) {
+                          setAttachmentUrl(uploadEvent.target.result as string);
+                        }
+                      };
+                      reader.readAsDataURL(file);
+                    }
+                  }}
+                  className={`border-2 border-dashed rounded-2xl p-4 sm:p-5 text-center transition flex flex-col items-center justify-center space-y-2 ${
+                    isDragOver
+                      ? 'border-orange-500 bg-orange-50/80'
+                      : 'border-slate-200 hover:border-orange-300 bg-slate-50/50 hover:bg-orange-50/20'
+                  }`}
+                >
+                  <div className="w-11 h-11 rounded-2xl bg-orange-100 text-orange-600 flex items-center justify-center shadow-xs">
+                    <UploadCloud className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <label className="cursor-pointer inline-flex items-center space-x-1.5 text-xs sm:text-sm font-bold text-orange-600 hover:text-orange-700 hover:underline">
+                      <span>คลิกเพื่อเลือกไฟล์จากคอมพิวเตอร์/มือถือ</span>
+                      <input
+                        type="file"
+                        accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.jpg,.jpeg,.png,.webp,.txt"
+                        onChange={(e) => {
+                          if (e.target.files && e.target.files[0]) {
+                            const file = e.target.files[0];
+                            const detected = detectFileTypeFromName(file.name);
+                            setAttachmentName(file.name);
+                            setAttachmentType(detected);
+                            setAttachmentSize(formatFileSize(file.size));
+                            const reader = new FileReader();
+                            reader.onload = (uploadEvent) => {
+                              if (uploadEvent.target?.result) {
+                                setAttachmentUrl(uploadEvent.target.result as string);
+                              }
+                            };
+                            reader.readAsDataURL(file);
+                          }
+                        }}
+                        className="hidden"
+                      />
+                    </label>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      หรือลากไฟล์มาวางในบริเวณนี้ (PDF, Word, Excel, รูปภาพสแกน ขนาดไม่เกิน 25 MB)
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Mode 2: Online / Cloud Link */}
+              {attachmentInputMode === 'link' && (
+                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-bold text-slate-700">
+                      ระบุที่อยู่ลิงก์เอกสารออนไลน์ (Google Drive / OneDrive / ระบบสารบรรณ) *
+                    </label>
+                    <div className="relative">
+                      <Globe className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="url"
+                        placeholder="https://drive.google.com/... หรือ https://edoc..."
+                        value={customLinkUrl}
+                        onChange={(e) => setCustomLinkUrl(e.target.value)}
+                        className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 focus:ring-2 focus:ring-orange-500 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-bold text-slate-700">
+                      ชื่อเอกสารหรือหัวข้อสำหรับแสดงผล
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="เช่น กำหนดการสัมมนา CPOT.pdf หรือ คำสั่งสำนักงานที่ 142/2569"
+                      value={customLinkTitle}
+                      onChange={(e) => setCustomLinkTitle(e.target.value)}
+                      className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 focus:ring-2 focus:ring-orange-500 focus:outline-none"
+                    />
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!customLinkUrl.trim()) return;
+                      const title = customLinkTitle.trim() || 'เอกสารแนบออนไลน์';
+                      setAttachmentName(title);
+                      setAttachmentUrl(customLinkUrl.trim());
+                      setAttachmentType('link');
+                      setAttachmentSize('Cloud Link');
+                    }}
+                    disabled={!customLinkUrl.trim()}
+                    className="px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition flex items-center space-x-1.5 shadow-xs cursor-pointer"
+                  >
+                    <Check className="w-4 h-4" />
+                    <span>บันทึกลิงก์เอกสารแนบ</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Section 3: Destination Selector (Reordered: Tambon, Amphoe, Province & Multi-destination) */}
+        <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div className="flex items-center space-x-2">
+              <MapPin className="w-4 h-4 text-orange-600" />
+              <h3 className="font-bold text-xs md:text-sm text-slate-900">๓. กำหนดสถานที่ปลายทาง (เลือกได้มากกว่า ๑ สถานที่)</h3>
+            </div>
+            {estimatedDistance > 0 && (
+              <span className="text-xs px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg font-bold flex items-center space-x-1">
+                <Route className="w-3.5 h-3.5 text-emerald-600" />
+                <span>ระยะทางรวม: ~{estimatedDistance} กม.</span>
+              </span>
+            )}
+          </div>
+
+          <div className="space-y-4">
+            
+            {/* Quick Frequent Destinations (สถานที่ปลายทางที่ใช้บ่อย) */}
+            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="block text-[11px] text-slate-600 font-bold flex items-center space-x-1">
+                  <Sparkles className="w-3.5 h-3.5 text-orange-500" />
+                  <span>สถานที่ปลายทางที่ใช้บ่อย (คลิกเพื่อเพิ่มเข้าในรายการทันที):</span>
+                </label>
+                <span className="text-[10px] text-slate-400">มีระยะทางคำนวณอัตโนมัติ</span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {FREQUENT_DESTINATIONS.map((freq) => {
+                  const isAdded = destinations.includes(freq.name);
+                  return (
+                    <button
+                      key={freq.id}
+                      type="button"
+                      onClick={() => handleSelectFrequentDest(freq)}
+                      className={`text-[11px] px-2.5 py-1 rounded-lg transition font-medium flex items-center space-x-1.5 border ${
+                        isAdded
+                          ? 'bg-orange-100 text-orange-800 border-orange-300 shadow-2xs font-semibold'
+                          : 'bg-white hover:bg-orange-50 hover:text-orange-700 hover:border-orange-200 text-slate-700 border-slate-200'
+                      }`}
+                      title={`${freq.name} (${freq.tambon}, ${freq.amphoe}, ${freq.province}) ระยะทาง ~${freq.distanceKm} กม.`}
+                    >
+                      {isAdded && <Check className="w-3 h-3 text-orange-600" />}
+                      <span>{freq.shortName}</span>
+                      <span className="text-[9px] px-1 py-0.2 bg-slate-100 text-slate-500 rounded">
+                        {freq.distanceKm} กม.
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Address fields: จังหวัด -> อำเภอ/เขต -> ตำบล/แขวง */}
+            <div className="space-y-2 bg-slate-50/80 p-3.5 rounded-2xl border border-slate-200">
+              <div className="flex flex-wrap items-center justify-between gap-1.5">
+                <label className="block text-xs font-semibold text-slate-800">
+                  เขตพื้นที่การปฏิบัติราชการ (ข้อมูลครบ ๗๗ จังหวัด ๙๒๘ อำเภอ/เขต ๗,๓๕๔ ตำบล/แขวง ทั่วไทย)
+                </label>
+                <span className="text-[11px] font-medium text-orange-700 bg-orange-50 border border-orange-200/80 px-2.5 py-0.5 rounded-lg shadow-2xs">
+                  {destProvince === 'กรุงเทพมหานคร'
+                    ? `แขวง${destTambon || '-'} เขต${destAmphoe || '-'} กรุงเทพมหานคร`
+                    : `ต.${destTambon || '-'} อ.${destAmphoe || '-'} จ.${destProvince || '-'}`}
+                </span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {/* 1. จังหวัด */}
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-700 mb-1">
+                    ๑. จังหวัด (๗๗ จังหวัดทั่วไทย) *
+                  </label>
+                  <select
+                    value={destProvince}
+                    onChange={(e) => {
+                      const newProv = e.target.value;
+                      setDestProvince(newProv);
+                      const pObj = THAI_LOCATIONS.find((x) => x.province === newProv);
+                      if (pObj && pObj.amphoes.length > 0) {
+                        setDestAmphoe(pObj.amphoes[0].amphoe);
+                        setDestTambon(pObj.amphoes[0].tambons[0] || '');
+                      }
+                    }}
+                    className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 font-medium focus:ring-2 focus:ring-orange-500 focus:outline-none shadow-2xs"
+                  >
+                    {THAI_REGIONS.map((grp) => (
+                      <optgroup key={grp.region} label={grp.region}>
+                        {grp.provinces.map((provName) => (
+                          <option key={provName} value={provName}>
+                            {provName}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                </div>
+
+                {/* 2. อำเภอ / เขต */}
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-700 mb-1">
+                    ๒. {destProvince === 'กรุงเทพมหานคร' ? 'เขต' : 'อำเภอ'} ({currentProvinceObj?.amphoes?.length || 0}) *
+                  </label>
+                  <select
+                    value={destAmphoe}
+                    onChange={(e) => {
+                      const newAmphoe = e.target.value;
+                      setDestAmphoe(newAmphoe);
+                      const aObj = currentProvinceObj?.amphoes?.find((x) => x.amphoe === newAmphoe);
+                      if (aObj && aObj.tambons.length > 0) {
+                        setDestTambon(aObj.tambons[0]);
+                      }
+                    }}
+                    className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 font-medium focus:ring-2 focus:ring-orange-500 focus:outline-none shadow-2xs"
+                  >
+                    {(currentProvinceObj?.amphoes || []).map((a) => (
+                      <option key={a.amphoe} value={a.amphoe}>
+                        {destProvince === 'กรุงเทพมหานคร' ? `เขต${a.amphoe}` : `อ.${a.amphoe}`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* 3. ตำบล / แขวง */}
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-700 mb-1">
+                    ๓. {destProvince === 'กรุงเทพมหานคร' ? 'แขวง' : 'ตำบล'} ({currentAmphoeObj?.tambons?.length || 0}) *
+                  </label>
+                  <select
+                    value={destTambon}
+                    onChange={(e) => setDestTambon(e.target.value)}
+                    className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 font-medium focus:ring-2 focus:ring-orange-500 focus:outline-none shadow-2xs"
+                  >
+                    {(currentAmphoeObj?.tambons || []).map((t) => (
+                      <option key={t} value={t}>
+                        {destProvince === 'กรุงเทพมหานคร' ? `แขวง${t}` : `ต.${t}`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {/* Destination Input with Enter to add next destination */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-semibold text-slate-700">
+                  พิมพ์ชื่อสถานที่ปลายทาง (พิมพ์แล้วกดปุ่ม Enter หรือคลิก &quot;+ เพิ่มสถานที่&quot; เพื่อเลือกสถานที่ ๒, ๓...) *
+                </label>
+                <span className="text-[11px] text-orange-600 font-medium flex items-center space-x-1">
+                  <CornerDownLeft className="w-3 h-3" />
+                  <span>กด Enter เพิ่มสถานที่ถัดไปได้ทันที</span>
+                </span>
+              </div>
+
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <input
+                    type="text"
+                    value={currentDestInput}
+                    onChange={(e) => setCurrentDestInput(e.target.value)}
+                    onKeyDown={handleKeyDownDestination}
+                    placeholder="พิมพ์ชื่อสถานที่ปลายทาง เช่น วัดประชุมศึกษา หรือ ศาลากลางจังหวัด แล้วกด Enter..."
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-3.5 pr-10 py-2.5 text-xs md:text-sm text-slate-800 focus:bg-white focus:ring-2 focus:ring-orange-500 focus:outline-none"
+                  />
+                  {currentDestInput && (
+                    <button
+                      type="button"
+                      onClick={() => setCurrentDestInput('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleAddDestination}
+                  disabled={!currentDestInput.trim()}
+                  className="px-4 py-2.5 bg-orange-600 hover:bg-orange-700 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl text-xs font-semibold flex items-center space-x-1 transition shrink-0 shadow-xs"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>เพิ่มสถานที่</span>
+                </button>
+              </div>
+            </div>
+
+            {/* List of Selected Destinations (จุดที่ ๑, ๒, ๓...) */}
+            {destinations.length > 0 && (
+              <div className="p-3.5 bg-orange-50/50 border border-orange-200/80 rounded-xl space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-orange-950 flex items-center space-x-1.5">
+                    <Navigation className="w-3.5 h-3.5 text-orange-600" />
+                    <span>รายการสถานที่ปลายทางที่เลือก ({destinations.length} แห่ง):</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDestinations([]);
+                      setEstimatedDistance(0);
+                    }}
+                    className="text-[11px] text-rose-600 hover:underline font-medium"
+                  >
+                    ล้างทั้งหมด
+                  </button>
+                </div>
+
+                <div className="space-y-1.5">
+                  {destinations.map((dest, idx) => (
+                    <div
+                      key={idx}
+                      className="flex items-center justify-between px-3 py-2 bg-white rounded-lg border border-orange-200/60 shadow-2xs text-xs"
+                    >
+                      <div className="flex items-center space-x-2">
+                        <span className="w-5 h-5 rounded-md bg-orange-500 text-white font-bold text-[10px] flex items-center justify-center shrink-0">
+                          {idx + 1}
+                        </span>
+                        <span className="font-semibold text-slate-800">{dest}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveDestination(idx)}
+                        className="text-slate-400 hover:text-rose-600 p-1 transition"
+                        title="ลบสถานที่นี้"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Interactive Multi-Stop Waypoint & Weather Visualizer */}
+                <div className="pt-2">
+                  <MultiStopRouteVisualizer
+                    origin="สำนักงานวัฒนธรรมจังหวัดพังงา"
+                    destinations={destinations}
+                    destProvince={destProvince}
+                    destDetail={destDetail}
+                    onRemoveStop={(idx) => handleRemoveDestination(idx)}
+                    onReorderStops={(newStops) => setDestinations(newStops)}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* GPS Geolocation & Route Distance Calculator */}
+            <div className="bg-gradient-to-br from-indigo-900/5 via-blue-900/5 to-slate-50 p-4 rounded-2xl border border-indigo-200/80 shadow-xs space-y-3.5">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-indigo-100 pb-2.5">
+                <div className="flex items-center space-x-2">
+                  <div className="w-8 h-8 rounded-lg bg-indigo-600 text-white flex items-center justify-center shadow-xs">
+                    <LocateFixed className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs md:text-sm font-bold text-indigo-950 flex items-center space-x-1.5">
+                      <span>เครื่องมือคำนวณระยะทางจากดาวเทียม GPS</span>
+                      <span className="text-[10px] px-2 py-0.5 bg-indigo-100 text-indigo-700 font-semibold rounded-full">
+                        GPS Geolocation
+                      </span>
+                    </h4>
+                    <p className="text-[11px] text-slate-500">
+                      คำนวณระยะทางขับขี่จริงตามเส้นทางและเวลาเดินทางโดยดึงพิกัด GPS ต้นทาง-ปลายทาง
+                    </p>
+                  </div>
+                </div>
+
+                {/* Mode toggle: ไป-กลับ / เที่ยวเดียว */}
+                <div className="flex items-center bg-white border border-indigo-200 rounded-xl p-1 text-xs shadow-2xs">
+                  <button
+                    type="button"
+                    onClick={() => setIsRoundTrip(true)}
+                    className={`px-3 py-1 rounded-lg font-medium transition ${
+                      isRoundTrip
+                        ? 'bg-indigo-600 text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    ไป-กลับ (Round trip)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsRoundTrip(false)}
+                    className={`px-3 py-1 rounded-lg font-medium transition ${
+                      !isRoundTrip
+                        ? 'bg-indigo-600 text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    เที่ยวเดียว (One way)
+                  </button>
+                </div>
+              </div>
+
+              {/* Origin configuration */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] font-semibold text-slate-700 flex items-center space-x-1">
+                      <MapPin className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>จุดเริ่มต้น / ต้นทาง (Origin GPS)</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={handleGetBrowserGps}
+                      disabled={isGettingGps}
+                      className="text-[11px] font-bold text-indigo-700 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-2.5 py-1 rounded-lg flex items-center space-x-1 transition shadow-2xs disabled:opacity-50"
+                      title="กดเพื่อดึงพิกัดดาวเทียม GPS จากอุปกรณ์ปัจจุบัน"
+                    >
+                      {isGettingGps ? (
+                        <>
+                          <RefreshCw className="w-3 h-3 animate-spin text-indigo-600" />
+                          <span>กำลังจับสัญญาณ GPS...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Crosshair className="w-3 h-3 text-indigo-600" />
+                          <span>📍 ดึงพิกัด GPS ปัจจุบัน</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  <select
+                    value={originGps.name}
+                    onChange={(e) => {
+                      const found = FREQUENT_ORIGINS.find((o) => o.name === e.target.value);
+                      if (found) setOriginGps(found);
+                    }}
+                    className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 font-medium focus:ring-2 focus:ring-indigo-500 focus:outline-none shadow-2xs"
+                  >
+                    {FREQUENT_ORIGINS.map((orig) => (
+                      <option key={orig.name} value={orig.name}>
+                        {orig.name}
+                      </option>
+                    ))}
+                    {originGps.name.startsWith('ตำแหน่งปัจจุบัน') && (
+                      <option value={originGps.name}>{originGps.name}</option>
+                    )}
+                  </select>
+
+                  <div className="flex items-center space-x-2 text-[10px] text-slate-500 bg-white/80 px-2.5 py-1 rounded-lg border border-slate-200/60">
+                    <span className="font-mono text-indigo-700 font-semibold">
+                      Lat: {originGps.lat.toFixed(4)}°, Lng: {originGps.lng.toFixed(4)}°
+                    </span>
+                    <span>•</span>
+                    <span className="truncate">{originGps.description || 'พิกัดเริ่มต้น'}</span>
+                  </div>
+                </div>
+
+                {/* Destination overview & trigger */}
+                <div className="space-y-1.5 flex flex-col justify-between">
+                  <div>
+                    <label className="text-[11px] font-semibold text-slate-700 flex items-center space-x-1 mb-1">
+                      <Navigation className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>จุดหมายปลายทาง (Destinations GPS)</span>
+                    </label>
+                    <div className="p-2 bg-white rounded-xl border border-slate-200 text-xs text-slate-700 min-h-[42px] flex items-center justify-between">
+                      <span className="truncate">
+                        {destinations.length > 0
+                          ? `${destinations.join(' ➔ ')} (${destProvince})`
+                          : `จ.${destProvince} อ.${destAmphoe} ต.${destTambon}`}
+                      </span>
+                      <span className="text-[10px] bg-emerald-50 text-emerald-700 font-bold px-2 py-0.5 rounded-md shrink-0 border border-emerald-200 ml-2">
+                        {destinations.length > 0 ? `${destinations.length} จุดหมาย` : '1 จุดหมาย'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleCalculateGpsDistance}
+                    className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition shadow-xs flex items-center justify-center space-x-1.5"
+                  >
+                    <Sparkles className="w-4 h-4 text-indigo-200" />
+                    <span>⚡ คำนวณระยะทางจากพิกัด GPS</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Success / Error alerts */}
+              {gpsSuccessMsg && (
+                <div className="flex items-center space-x-2 p-2.5 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-xl text-xs animate-in fade-in">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>{gpsSuccessMsg}</span>
+                </div>
+              )}
+              {gpsError && (
+                <div className="flex items-center space-x-2 p-2.5 bg-rose-50 text-rose-800 border border-rose-200 rounded-xl text-xs animate-in fade-in">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>{gpsError}</span>
+                </div>
+              )}
+
+              {/* Calculated Results Card */}
+              {gpsCalculationResult && (
+                <div className="bg-white p-3.5 rounded-xl border border-indigo-200 shadow-xs space-y-2.5 animate-in fade-in">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-center">
+                    <div className="p-2 bg-indigo-50/60 rounded-lg border border-indigo-100">
+                      <span className="text-[10px] text-indigo-700 font-semibold block">ระยะทางขับขี่รวม</span>
+                      <b className="text-base text-indigo-950 font-mono font-bold">
+                        {gpsCalculationResult.totalDistanceKm} กม.
+                      </b>
+                    </div>
+                    <div className="p-2 bg-blue-50/60 rounded-lg border border-blue-100">
+                      <span className="text-[10px] text-blue-700 font-semibold block">เวลาเดินทางประมาณ</span>
+                      <b className="text-sm text-blue-950 font-bold">
+                        {gpsCalculationResult.estimatedDurationText}
+                      </b>
+                    </div>
+                    <div className="col-span-2 sm:col-span-1 p-2 bg-slate-50 rounded-lg border border-slate-100">
+                      <span className="text-[10px] text-slate-500 font-semibold block">ระยะทางเส้นตรงดาวเทียม</span>
+                      <span className="text-xs text-slate-700 font-mono font-medium">
+                        {gpsCalculationResult.straightLineKm} กม.
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Legs breakdown */}
+                  {gpsCalculationResult.legs.length > 0 && (
+                    <div className="text-[11px] text-slate-600 space-y-1 bg-slate-50/70 p-2.5 rounded-lg border border-slate-100">
+                      <span className="font-bold text-slate-800 block text-[10px] uppercase tracking-wide">
+                        รายละเอียดเส้นทางเดินรถ (Route Legs):
+                      </span>
+                      {gpsCalculationResult.legs.map((leg, lIdx) => (
+                        <div key={lIdx} className="flex items-center justify-between py-0.5 border-b border-slate-200/50 last:border-0">
+                          <span className="truncate pr-2">
+                            {lIdx + 1}. {leg.from} ➔ {leg.to}
+                          </span>
+                          <span className="font-mono font-bold text-indigo-700 shrink-0">
+                            {leg.distanceKm} กม.
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between pt-1">
+                    <span className="text-[11px] text-emerald-700 font-semibold flex items-center space-x-1">
+                      <Check className="w-3.5 h-3.5" />
+                      <span>อัปเดตระยะทาง {gpsCalculationResult.totalDistanceKm} กม. ลงในแบบฟอร์มคำขอแล้ว</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setEstimatedDistance(gpsCalculationResult.totalDistanceKm)}
+                      className="text-[11px] text-indigo-600 font-bold hover:underline"
+                    >
+                      คำนวณใหม่
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Distance Input & Summary */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  ระยะทางไป-กลับโดยประมาณ (กิโลเมตร)
+                </label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    min={0}
+                    value={estimatedDistance || ''}
+                    onChange={(e) => setEstimatedDistance(Math.max(0, parseInt(e.target.value, 10) || 0))}
+                    placeholder="เช่น 60, 120, 240 (กม.)"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs md:text-sm text-slate-800 focus:bg-white focus:ring-2 focus:ring-orange-500 focus:outline-none pr-12 font-mono"
+                  />
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 font-medium">
+                    กม.
+                  </span>
+                </div>
+                <p className="text-[10px] text-slate-500 mt-1">
+                  * ใช้สำหรับคำนวณเชื้อเพลิงและประเมินเวลาการปฏิบัติงานของพนักงานขับรถ
+                </p>
+              </div>
+
+              {/* Destination Preview */}
+              <div className="bg-orange-50/70 border border-orange-200 rounded-xl p-3 flex items-start space-x-2.5 text-xs text-orange-950 font-medium">
+                <Info className="w-4 h-4 text-orange-600 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <span className="font-bold block text-orange-900">ข้อความปลายทางที่จะปรากฏในใบคำขอขอใช้รถยนต์ส่วนกลาง:</span>
+                  <p className="text-slate-700 leading-relaxed bg-white/70 p-2 rounded-lg border border-orange-100 font-sans">
+                    {assembleDestination() || 'ยังไม่ได้ระบุสถานที่'}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        {/* Section 4: Date, Time & Vehicles (Thai Format) */}
+        <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs space-y-4">
+          <div className="flex items-center space-x-2 border-b border-slate-100 pb-3">
+            <Car className="w-4 h-4 text-orange-600" />
+            <h3 className="font-bold text-xs md:text-sm text-slate-900">
+              ๔. วันที่เดินทางและยานพาหนะ (รูปแบบวัน-เวลาของไทย)
+            </h3>
+          </div>
+
+          {/* Thai Date Badge preview */}
+          <div className="bg-amber-50/80 border border-amber-200/80 rounded-xl p-3 flex items-center space-x-2.5 text-xs text-amber-950 font-medium shadow-2xs">
+            <Calendar className="w-4 h-4 text-amber-600 shrink-0" />
+            <div className="leading-relaxed">
+              <span>กำหนดการเดินทาง: </span>
+              <b className="text-amber-900">{formatThaiDateRange(date, endDate)}</b>
+              <span className="mx-1.5">•</span>
+              <span>เวลา </span>
+              <b className="text-amber-900">{formatThaiTime(startTime)} - {formatThaiTime(endTime)}</b>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1.5">
+                วันที่เดินทางไป *
+              </label>
+              <input
+                type="date"
+                required
+                value={date}
+                onChange={(e) => {
+                  setDate(e.target.value);
+                  if (!endDate || endDate < e.target.value) {
+                    setEndDate(e.target.value);
+                  }
+                }}
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs md:text-sm text-slate-800 focus:bg-white focus:ring-2 focus:ring-orange-500"
+              />
+              <span className="text-[11px] text-slate-500 block mt-1">
+                {formatThaiDate(date, 'full')}
+              </span>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1.5">
+                วันที่เดินทางกลับ (กรณีค้างคืน)
+              </label>
+              <input
+                type="date"
+                value={endDate}
+                min={date}
+                onChange={(e) => setEndDate(e.target.value)}
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs md:text-sm text-slate-800 focus:bg-white focus:ring-2 focus:ring-orange-500"
+              />
+              <span className="text-[11px] text-slate-500 block mt-1">
+                {formatThaiDate(endDate, 'full')}
+              </span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1.5">เวลาออกเดินทาง *</label>
+              <input
+                type="time"
+                value={startTime}
+                onChange={(e) => setStartTime(e.target.value)}
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs md:text-sm text-slate-800 focus:bg-white focus:ring-2 focus:ring-orange-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1.5">
+                เวลาเดินทางกลับโดยประมาณ
+              </label>
+              <input
+                type="time"
+                value={endTime}
+                onChange={(e) => setEndTime(e.target.value)}
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs md:text-sm text-slate-800 focus:bg-white focus:ring-2 focus:ring-orange-500"
+              />
+            </div>
+          </div>
+
+          {/* Real-time Booking Collision Alert Banner */}
+          {hasCollision ? (
+            <div className="bg-rose-50 border-2 border-rose-400 rounded-2xl p-4 shadow-sm space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
+              <div className="flex items-start justify-between">
+                <div className="flex items-start space-x-3">
+                  <div className="w-10 h-10 rounded-xl bg-rose-500 text-white flex items-center justify-center shrink-0 shadow-xs animate-pulse">
+                    <AlertTriangle className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center space-x-2">
+                      <span className="text-xs md:text-sm font-bold text-rose-900">
+                        ⚠️ ตรวจพบการจองรถยนต์ซ้ำซ้อนในเวลานี้ (Real-time Collision Alert)
+                      </span>
+                      <span className="text-[10px] bg-rose-200 text-rose-800 font-bold px-2 py-0.5 rounded-md">
+                        {conflictingBookings.length} คำขอชนเวลา
+                      </span>
+                    </div>
+                    <p className="text-xs text-rose-700 mt-0.5">
+                      รถยนต์คันที่ท่านเลือก มีการจองคิวใช้งานในช่วงเวลาดังกล่าวแล้ว โปรดสลับไปใช้รถยนต์คันอื่นหรือปรับเปลี่ยนเวลาเดินทาง
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* List of conflicting bookings */}
+              <div className="space-y-2">
+                {conflictingBookings.map((cb) => (
+                  <div
+                    key={cb.id}
+                    className="bg-white/95 rounded-xl p-3 border border-rose-200 shadow-2xs flex flex-wrap items-center justify-between gap-2 text-xs"
+                  >
+                    <div className="space-y-0.5">
+                      <div className="flex items-center space-x-2">
+                        <span className="font-mono font-bold text-rose-700 bg-rose-100 px-2 py-0.5 rounded text-[11px]">
+                          {cb.id}
+                        </span>
+                        <b className="text-slate-800">{cb.carName}</b>
+                        <span className="text-slate-500">โดย</span>
+                        <span className="font-semibold text-slate-800">{cb.name}</span>
+                        <span className="text-[11px] text-slate-500">({cb.department})</span>
+                      </div>
+                      <div className="text-[11px] text-slate-600 flex items-center space-x-2">
+                        <span>กำหนดการ: <b>{formatThaiDateRange(cb.date, cb.endDate)}</b> ({cb.startTime} - {cb.endTime} น.)</span>
+                        <span>•</span>
+                        <span className="text-slate-500 truncate max-w-xs">ภารกิจ: {cb.purpose}</span>
+                      </div>
+                    </div>
+
+                    <span
+                      className={`text-[11px] font-bold px-2.5 py-1 rounded-lg ${
+                        cb.status === 'approved'
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : 'bg-amber-100 text-amber-800'
+                      }`}
+                    >
+                      {cb.status === 'approved' ? 'อนุมัติใช้งานแล้ว' : 'รอพิจารณาอนุมัติ'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Auto suggestion & Quick switch button */}
+              {availableAlternativeVehicle && (
+                <div className="bg-emerald-50/90 border border-emerald-300 rounded-xl p-3 flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center space-x-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <div className="text-xs text-emerald-950">
+                      <span>แนะนำสลับไปใช้รถที่ว่าง: </span>
+                      <b className="text-emerald-800 font-bold">
+                        {availableAlternativeVehicle.name} ({availableAlternativeVehicle.plate})
+                      </b>
+                      <span className="text-slate-500 ml-1">
+                        - {availableAlternativeVehicle.fuelType} (พนักงานขับรถ: {availableAlternativeVehicle.driverName})
+                      </span>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handleSwitchToAvailableVehicle(availableAlternativeVehicle)}
+                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition shadow-xs flex items-center space-x-1"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>🔄 สลับเป็นคันนี้ทันที</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="bg-emerald-50/70 border border-emerald-200/80 rounded-xl p-3 flex items-center space-x-2.5 text-xs text-emerald-900">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>
+                <b>สถานะความพร้อม:</b> ไม่มีคำขอที่เวลาซ้ำซ้อน รถยนต์คันนี้พร้อมให้บริการในช่วงวัน-เวลาที่ระบุ
+              </span>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1.5">
+                เลือกรถยนต์ราชการ *
+              </label>
+              <select
+                required
+                value={carId}
+                onChange={(e) => handleCarChange(e.target.value)}
+                className={`w-full bg-slate-50 border rounded-xl px-3.5 py-2.5 text-xs md:text-sm text-slate-800 focus:bg-white focus:ring-2 ${
+                  hasCollision
+                    ? 'border-rose-400 focus:ring-rose-500 bg-rose-50/40 text-rose-900'
+                    : 'border-slate-200 focus:ring-orange-500'
+                }`}
+              >
+                {vehicles.map((v) => {
+                  const avail = vehicleAvailability.get(v.id);
+                  const isAvail = avail?.isAvailable !== false;
+                  return (
+                    <option key={v.id} value={v.id}>
+                      {isAvail ? '✅ [ว่าง พร้อมใช้]' : `⚠️ [เวลาชนกับ ${avail?.conflict?.id || 'คิวอื่น'}]`}{' '}
+                      {v.name} ({v.plate}) - {v.fuelType}
+                    </option>
+                  );
+                })}
+              </select>
+
+              {/* Quick Vehicle Fleet Availability Selector Cards */}
+              <div className="mt-2.5 space-y-1.5">
+                <span className="text-[10px] text-slate-500 font-semibold block">
+                  สถานะความพร้อมของรถยนต์ส่วนกลางทั้งหมดในช่วงเวลานี้ (คลิกเพื่อเลือกคันที่ว่าง):
+                </span>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {vehicles.map((v) => {
+                    const avail = vehicleAvailability.get(v.id);
+                    const isAvail = avail?.isAvailable !== false;
+                    const isSelected = v.id === carId;
+                    return (
+                      <button
+                        key={v.id}
+                        type="button"
+                        onClick={() => handleCarChange(v.id)}
+                        className={`p-2.5 rounded-xl border text-left transition flex flex-col justify-between space-y-1.5 ${
+                          isSelected
+                            ? isAvail
+                              ? 'border-orange-500 bg-orange-50/70 ring-2 ring-orange-400'
+                              : 'border-rose-500 bg-rose-50/70 ring-2 ring-rose-400'
+                            : isAvail
+                            ? 'border-slate-200 bg-white hover:border-slate-300'
+                            : 'border-rose-200 bg-rose-50/30 hover:border-rose-300'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-xs text-slate-800 truncate">{v.name}</span>
+                          {isAvail ? (
+                            <span className="text-[9px] px-1.5 py-0.5 bg-emerald-100 text-emerald-800 font-bold rounded">
+                              ว่าง
+                            </span>
+                          ) : (
+                            <span className="text-[9px] px-1.5 py-0.5 bg-rose-100 text-rose-800 font-bold rounded">
+                              ติดจอง
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[10px] text-slate-500 flex items-center justify-between">
+                          <span>{v.plate}</span>
+                          <span className="text-[9px]">{v.fuelType}</span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1.5">
+                ผู้ขับขี่ / พนักงานขับรถ *
+              </label>
+              <div className="space-y-2">
+                <div className="flex items-center space-x-4 text-xs">
+                  <label className="flex items-center space-x-1.5 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="driverType"
+                      checked={driverType === 'driver'}
+                      onChange={() => {
+                        setDriverType('driver');
+                        const chosen = vehicles.find((v) => v.id === carId);
+                        if (chosen) setDriverName(chosen.driverName);
+                      }}
+                      className="text-orange-600 focus:ring-0"
+                    />
+                    <span>พนักงานขับรถประจำสำนักงาน</span>
+                  </label>
+
+                  <label className="flex items-center space-x-1.5 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="driverType"
+                      checked={driverType === 'self'}
+                      onChange={() => {
+                        setDriverType('self');
+                        setDriverName(`${name} (ผู้ขอขับขี่ด้วยตนเอง)`);
+                      }}
+                      className="text-orange-600 focus:ring-0"
+                    />
+                    <span>ขับขี่ด้วยตนเอง</span>
+                  </label>
+                </div>
+
+                {driverType === 'driver' ? (
+                  <div className="space-y-2">
+                    {/* Driver Selector & Actions */}
+                    <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
+                      <div className="relative flex-1">
+                        {!isCustomDriverInput ? (
+                          <select
+                            id="driver-selection-dropdown"
+                            value={driverName}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              if (val === '__browse_system__') {
+                                setUserPickerTarget('primary');
+                                setShowUserPickerModal(true);
+                                return;
+                              }
+                              if (val === '__add_new__') {
+                                setAddDriverTarget('primary');
+                                setShowAddDriverModal(true);
+                                return;
+                              }
+                              if (val === '__custom_input__') {
+                                setIsCustomDriverInput(true);
+                                return;
+                              }
+                              setDriverName(val);
+                            }}
+                            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 focus:bg-white focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 font-medium"
+                          >
+                            <optgroup label="👔 พนักงานขับรถในระบบ / ทำเนียบผู้ขับขี่">
+                              {driverDirectory.map((d) => (
+                                <option key={d.id} value={d.name}>
+                                  {d.name} {d.position ? `(${d.position})` : ''} {d.phone ? `• โทร ${d.phone}` : ''}
+                                </option>
+                              ))}
+                            </optgroup>
+
+                            {users.length > 0 && (
+                              <optgroup label="🏛️ ดึงรายชื่อจากบุคลากรในระบบ (Users)">
+                                {users.map((u) => (
+                                  <option key={u.id} value={u.name}>
+                                    {u.name} ({u.position || u.roleTitle})
+                                  </option>
+                                ))}
+                              </optgroup>
+                            )}
+
+                            <optgroup label="⚙️ จัดการ / ตัวเลือกเพิ่มเติม">
+                              <option value="__browse_system__">👥 ค้นหาและดึงรายชื่อจากระบบ...</option>
+                              <option value="__add_new__">+ เพิ่มรายชื่อพนักงานขับรถใหม่...</option>
+                              <option value="__custom_input__">✏️ พิมพ์ระบุชื่อคนขับเอง...</option>
+                            </optgroup>
+                          </select>
+                        ) : (
+                          <div className="flex items-center space-x-1.5">
+                            <input
+                              type="text"
+                              id="custom-driver-input"
+                              value={driverName}
+                              onChange={(e) => setDriverName(e.target.value)}
+                              placeholder="พิมพ์ชื่อ-นามสกุล พนักงานขับรถ"
+                              className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 font-medium"
+                              autoFocus
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setIsCustomDriverInput(false)}
+                              className="px-2.5 py-2 text-xs text-slate-600 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-xl whitespace-nowrap transition cursor-pointer"
+                              title="กลับไปเลือกจากรายชื่อ"
+                            >
+                              กลับไปเลือก
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Quick Action Buttons */}
+                      <div className="flex items-center space-x-1.5 shrink-0">
+                        <button
+                          type="button"
+                          id="btn-open-user-picker-primary"
+                          onClick={() => {
+                            setUserPickerTarget('primary');
+                            setUserPickerSearch('');
+                            setShowUserPickerModal(true);
+                          }}
+                          className="inline-flex items-center space-x-1 px-3 py-2 rounded-xl border border-blue-200 bg-blue-50/80 hover:bg-blue-100 text-blue-800 text-xs font-medium transition cursor-pointer active:scale-95 shadow-2xs"
+                          title="ดึงรายชื่อจากทำเนียบบุคลากรในระบบ"
+                        >
+                          <Users className="w-3.5 h-3.5 text-blue-600" />
+                          <span>ดึงจากระบบ</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          id="btn-open-add-driver-modal-primary"
+                          onClick={() => {
+                            setAddDriverTarget('primary');
+                            setShowAddDriverModal(true);
+                          }}
+                          className="inline-flex items-center space-x-1 px-3 py-2 rounded-xl border border-emerald-200 bg-emerald-50/80 hover:bg-emerald-100 text-emerald-800 text-xs font-semibold transition cursor-pointer active:scale-95 shadow-2xs"
+                          title="เพิ่มรายชื่อพนักงานขับรถคนใหม่"
+                        >
+                          <UserPlus className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>+ เพิ่มคนขับใหม่</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Driver Card Badge */}
+                    <div className="p-2.5 bg-slate-50/90 rounded-xl border border-slate-200 flex items-center justify-between text-xs">
+                      <div className="flex items-center space-x-2.5 min-w-0">
+                        <div className="w-7 h-7 rounded-lg bg-orange-100 text-orange-700 flex items-center justify-center font-bold text-xs shrink-0">
+                          <UserCheck className="w-4 h-4" />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="font-semibold text-slate-800 flex items-center space-x-1.5">
+                            <span className="truncate">{driverName || 'ยังไม่ได้เลือกผู้ขับขี่'}</span>
+                            {users.some((u) => u.name === driverName) && (
+                              <span className="text-[10px] px-1.5 py-0.5 bg-blue-100 text-blue-800 rounded font-medium shrink-0">
+                                บุคลากรในระบบ
+                              </span>
+                            )}
+                            {driverDirectory.some((d) => d.name === driverName) && !users.some((u) => u.name === driverName) && (
+                              <span className="text-[10px] px-1.5 py-0.5 bg-orange-100 text-orange-800 rounded font-medium shrink-0">
+                                พนักงานขับรถ
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[11px] text-slate-500 truncate">
+                            {(() => {
+                              const foundDir = driverDirectory.find((d) => d.name === driverName);
+                              const foundUsr = users.find((u) => u.name === driverName);
+                              return (
+                                foundDir?.position ||
+                                foundUsr?.position ||
+                                foundUsr?.roleTitle ||
+                                (isCustomDriverInput ? 'ระบุชื่อโดยผู้ยื่นคำขอ' : 'พนักงานขับรถยนต์ประจำสำนักงาน')
+                              );
+                            })()}
+                            {(() => {
+                              const foundDir = driverDirectory.find((d) => d.name === driverName);
+                              const foundUsr = users.find((u) => u.name === driverName);
+                              const phone = foundDir?.phone || foundUsr?.phone;
+                              return phone ? ` • โทร ${phone}` : '';
+                            })()}
+                          </div>
+                        </div>
+                      </div>
+
+                      {!isCustomDriverInput && (
+                        <button
+                          type="button"
+                          onClick={() => setIsCustomDriverInput(true)}
+                          className="text-[11px] text-slate-400 hover:text-slate-600 px-2 py-1 rounded hover:bg-slate-200/60 transition whitespace-nowrap ml-2"
+                        >
+                          พิมพ์ชื่อเอง
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <input
+                    type="text"
+                    readOnly
+                    value={`${name} (ผู้ขอขับขี่ด้วยตนเอง)`}
+                    className="w-full bg-slate-100 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-600"
+                  />
+                )}
+
+                {/* Additional / Assistant Driver Section */}
+                {!hasSecondaryDriver ? (
+                  <div className="pt-2">
+                    <button
+                      type="button"
+                      id="btn-add-secondary-driver"
+                      onClick={() => {
+                        setHasSecondaryDriver(true);
+                        // Auto-fill from first selected passenger or first available colleague if available
+                        if (selectedPassengers.length > 0) {
+                          setSecondaryDriverName(selectedPassengers[0].name);
+                          setSecondaryDriverPosition(selectedPassengers[0].position || 'ผู้ร่วมเดินทาง/ผู้ช่วยขับขี่');
+                        } else {
+                          const candidate = users.find((u) => u.name !== name && !u.name.includes('พนักงานขับรถ'));
+                          if (candidate) {
+                            setSecondaryDriverName(candidate.name);
+                            setSecondaryDriverId(candidate.id);
+                            setSecondaryDriverPosition(candidate.position || candidate.roleTitle || '');
+                          }
+                        }
+                      }}
+                      className="w-full sm:w-auto inline-flex items-center justify-center space-x-1.5 px-3.5 py-2 rounded-xl border border-dashed border-orange-300 dark:border-orange-700/60 bg-orange-50/70 hover:bg-orange-100/70 text-orange-800 text-xs font-semibold transition cursor-pointer active:scale-95 shadow-2xs"
+                    >
+                      <UserPlus className="w-3.5 h-3.5 text-orange-600" />
+                      <span>+ เพิ่มผู้ขับขี่เสริม / ผู้ช่วยขับขี่ (เจ้าหน้าที่ในกลุ่มช่วยขับ)</span>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="mt-2.5 p-3.5 bg-orange-50/70 border border-orange-200/80 rounded-xl space-y-2.5 shadow-2xs">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <div className="w-6 h-6 rounded-lg bg-orange-100 text-orange-700 flex items-center justify-center font-bold text-xs">
+                          <UserPlus className="w-3.5 h-3.5 text-orange-600" />
+                        </div>
+                        <div className="flex items-center flex-wrap gap-1.5">
+                          <span className="text-xs font-bold text-slate-800">
+                            ผู้ขับขี่เสริม / ผู้ช่วยขับขี่
+                          </span>
+                          <span className="text-[10px] text-orange-700 bg-orange-100/90 px-2 py-0.5 rounded-full font-medium border border-orange-200">
+                            เจ้าหน้าที่ในกลุ่มช่วยขับ
+                          </span>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        id="btn-remove-secondary-driver"
+                        onClick={() => {
+                          setHasSecondaryDriver(false);
+                          setSecondaryDriverName('');
+                          setSecondaryDriverId('');
+                          setSecondaryDriverPosition('');
+                        }}
+                        className="inline-flex items-center space-x-1 text-xs text-slate-400 hover:text-rose-600 transition px-2 py-1 rounded-lg hover:bg-rose-50 cursor-pointer"
+                        title="ลบผู้ช่วยขับขี่ออก"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                        <span>ลบออก</span>
+                      </button>
+                    </div>
+
+                    <div className="space-y-2">
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="block text-[11px] font-medium text-slate-600">
+                            เลือกจากรายชื่อเจ้าหน้าที่ในระบบ หรือ ผู้ร่วมเดินทาง:
+                          </label>
+                          <div className="flex items-center space-x-1.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setUserPickerTarget('secondary');
+                                setUserPickerSearch('');
+                                setShowUserPickerModal(true);
+                              }}
+                              className="text-[10px] text-blue-700 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded-md font-medium inline-flex items-center space-x-1 border border-blue-200 cursor-pointer"
+                              title="ค้นหาจากทำเนียบบุคลากร"
+                            >
+                              <Users className="w-3 h-3 text-blue-600" />
+                              <span>ดึงจากระบบ</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setAddDriverTarget('secondary');
+                                setShowAddDriverModal(true);
+                              }}
+                              className="text-[10px] text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-2 py-0.5 rounded-md font-medium inline-flex items-center space-x-1 border border-emerald-200 cursor-pointer"
+                              title="เพิ่มรายชื่อคนใหม่"
+                            >
+                              <UserPlus className="w-3 h-3 text-emerald-600" />
+                              <span>+ เพิ่มคนใหม่</span>
+                            </button>
+                          </div>
+                        </div>
+
+                        <select
+                          value={secondaryDriverName}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (val === '__browse_system__') {
+                              setUserPickerTarget('secondary');
+                              setUserPickerSearch('');
+                              setShowUserPickerModal(true);
+                              return;
+                            }
+                            if (val === '__add_new__') {
+                              setAddDriverTarget('secondary');
+                              setShowAddDriverModal(true);
+                              return;
+                            }
+                            if (val === 'custom') {
+                              setSecondaryDriverName('');
+                              setSecondaryDriverId('');
+                              setSecondaryDriverPosition('');
+                              return;
+                            }
+                            // Check if selected passenger
+                            const psg = selectedPassengers.find((p) => p.name === val);
+                            if (psg) {
+                              setSecondaryDriverName(psg.name);
+                              setSecondaryDriverPosition(psg.position || 'ผู้ร่วมเดินทาง/ผู้ช่วยขับขี่');
+                              setSecondaryDriverId('');
+                              return;
+                            }
+                            // Check if user in system
+                            const usr = users.find((u) => u.name === val || u.id === val);
+                            if (usr) {
+                              setSecondaryDriverName(usr.name);
+                              setSecondaryDriverId(usr.id);
+                              setSecondaryDriverPosition(usr.position || usr.roleTitle || '');
+                              return;
+                            }
+                            // Check if driver directory
+                            const drv = driverDirectory.find((d) => d.name === val);
+                            if (drv) {
+                              setSecondaryDriverName(drv.name);
+                              setSecondaryDriverPosition(drv.position || 'พนักงานขับรถยนต์ประจำสำนักงาน');
+                              setSecondaryDriverId(drv.userId || '');
+                              return;
+                            }
+                            // Fallback
+                            setSecondaryDriverName(val);
+                          }}
+                          className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500"
+                        >
+                          <option value="">-- กรุณาเลือกเจ้าหน้าที่ผู้ช่วยขับขี่ --</option>
+                          {selectedPassengers.length > 0 && (
+                            <optgroup label="👥 ผู้ร่วมเดินทางในคำขอนี้">
+                              {selectedPassengers.map((psg, idx) => (
+                                <option key={`psg-${idx}`} value={psg.name}>
+                                  {psg.name} ({psg.position || 'ผู้ร่วมเดินทาง'})
+                                </option>
+                              ))}
+                            </optgroup>
+                          )}
+                          {users.length > 0 && (
+                            <optgroup label="🏛️ ข้าราชการ/เจ้าหน้าที่ในสำนักงานวัฒนธรรมฯ">
+                              {users
+                                .filter((u) => u.name !== name && u.name !== driverName)
+                                .map((u) => (
+                                  <option key={u.id} value={u.name}>
+                                    {u.name} ({u.position || u.roleTitle})
+                                  </option>
+                                ))}
+                            </optgroup>
+                          )}
+                          <optgroup label="👔 พนักงานขับรถในระบบ">
+                            {driverDirectory.map((d) => (
+                              <option key={d.id} value={d.name}>
+                                {d.name} {d.position ? `(${d.position})` : ''}
+                              </option>
+                            ))}
+                          </optgroup>
+                          <optgroup label="⚙️ จัดการเพิ่มเติม">
+                            <option value="__browse_system__">👥 ค้นหา/ดึงรายชื่อจากระบบ...</option>
+                            <option value="__add_new__">+ เพิ่มรายชื่อคนขับใหม่เข้าระบบ...</option>
+                            <option value="custom">✏️ พิมพ์ระบุชื่อเจ้าหน้าที่เอง...</option>
+                          </optgroup>
+                        </select>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                            ชื่อ-นามสกุล เจ้าหน้าที่ผู้ช่วยขับขี่:
+                          </label>
+                          <input
+                            type="text"
+                            value={secondaryDriverName}
+                            onChange={(e) => setSecondaryDriverName(e.target.value)}
+                            placeholder="ระบุชื่อ-นามสกุล เจ้าหน้าที่"
+                            className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                            ตำแหน่ง (ถ้ามี):
+                          </label>
+                          <input
+                            type="text"
+                            value={secondaryDriverPosition}
+                            onChange={(e) => setSecondaryDriverPosition(e.target.value)}
+                            placeholder="เช่น นักวิชาการวัฒนธรรมปฏิบัติการ"
+                            className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex items-start space-x-1.5 text-[11px] text-amber-800 bg-amber-100/50 p-2 rounded-lg border border-amber-200/60">
+                        <Info className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+                        <span>
+                          เจ้าหน้าที่ที่ระบุเป็นผู้ช่วยขับขี่ จะได้รับสิทธิ์ควบคุมยานพาหนะและสามารถเข้าสู่ระบบเพื่อกดเริ่มภารกิจ / บันทึกเลขไมล์เดินทางได้
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Section 5: Passengers from Directory / System & Add New */}
+        <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div className="flex items-center space-x-2">
+              <Users className="w-4 h-4 text-orange-600" />
+              <h3 className="font-bold text-xs md:text-sm text-slate-900">
+                ๕. รายชื่อผู้ร่วมเดินทางและเอกสารแนบ
+              </h3>
+            </div>
+            
+            {/* Button to add new passenger to system directory */}
+            <button
+              type="button"
+              onClick={() => setShowAddPassengerModal(true)}
+              className="px-3 py-1.5 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 rounded-xl text-xs font-semibold flex items-center space-x-1.5 transition shadow-2xs"
+            >
+              <UserPlus className="w-3.5 h-3.5" />
+              <span>+ เพิ่มรายชื่อใหม่ (บันทึกลงระบบ)</span>
+            </button>
+          </div>
+
+          <div className="space-y-3">
+            {/* Passenger Selector Dropdown */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                เลือกผู้ร่วมเดินทางจากระบบ (ข้าราชการ / เจ้าหน้าที่):
+              </label>
+              <select
+                onChange={(e) => {
+                  if (e.target.value) {
+                    handleSelectPassenger(e.target.value);
+                    e.target.value = '';
+                  }
+                }}
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs md:text-sm text-slate-800 focus:bg-white focus:ring-2 focus:ring-orange-500 focus:outline-none"
+              >
+                <option value="">-- คลิกเพื่อเลือกรายชื่อผู้ร่วมเดินทางจากระบบ --</option>
+                {availablePassengers.map((psg) => (
+                  <option key={psg.id} value={psg.name}>
+                    {psg.name} — {psg.position} ({psg.department})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Selected Passenger Tags */}
+            {selectedPassengers.length > 0 && (
+              <div className="space-y-2">
+                <label className="block text-[11px] font-medium text-slate-500">
+                  รายชื่อผู้ร่วมเดินทางที่เลือกแล้ว ({selectedPassengers.length} ท่าน):
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {selectedPassengers.map((psg, idx) => (
+                    <span
+                      key={psg.id || idx}
+                      className="inline-flex items-center space-x-2 px-3 py-1.5 bg-purple-50 text-purple-900 border border-purple-200 rounded-xl text-xs font-medium shadow-2xs"
+                    >
+                      <span className="w-5 h-5 rounded-full bg-purple-200 text-purple-800 text-[10px] font-bold flex items-center justify-center">
+                        {psg.name.charAt(0)}
+                      </span>
+                      <span>{psg.name}</span>
+                      <span className="text-[10px] text-purple-600 bg-white/70 px-1.5 py-0.5 rounded">
+                        {psg.position}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleRemovePassenger(idx)}
+                        className="text-purple-400 hover:text-rose-600 transition"
+                        title="ลบรายชื่อนี้"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 pt-1">
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1.5">
+                  จำนวนผู้ร่วมเดินทางรวม (คน) *
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  max={15}
+                  required
+                  value={passengerCount}
+                  onChange={(e) => setPassengerCount(parseInt(e.target.value, 10) || 1)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs md:text-sm text-slate-800 focus:bg-white focus:ring-2 focus:ring-orange-500"
+                />
+              </div>
+
+              <div className="md:col-span-3">
+                <label className="block text-xs font-medium text-slate-700 mb-1.5">
+                  ข้อความรายชื่อผู้ร่วมเดินทาง (จะปรากฏในใบคำขอขอใช้รถยนต์ส่วนกลาง)
+                </label>
+                <input
+                  type="text"
+                  value={passengerNames}
+                  onChange={(e) => setPassengerNames(e.target.value)}
+                  placeholder="เช่น นายสมชาย ใจดี, นางสาวกุณา สุขสบาย, ผู้แทนชุมชน 2 ท่าน"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs md:text-sm text-slate-800 focus:bg-white focus:ring-2 focus:ring-orange-500"
+                />
+              </div>
+            </div>
+
+
+          </div>
+        </div>
+
+        {/* Requester Digital Signature (ลงลายมือชื่อผู้ขอใช้รถในใบคำขอ) */}
+        <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+            <div className="flex items-center space-x-2.5">
+              <div className="w-8 h-8 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center border border-orange-200">
+                <PenTool className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">ลายมือชื่อผู้ขอใช้รถ (ลงนามในใบคำขอ)</h3>
+                <p className="text-[11px] text-slate-500">
+                  ระบบจะประทับลายมือชื่อนี้ลงในช่อง &quot;(ลงชื่อ) ... ผู้ขอใช้รถ&quot; ในใบบันทึกขอใช้รถยนต์ส่วนกลางอัตโนมัติ
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowSignatureModal(true)}
+              className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-orange-50 hover:bg-orange-100 text-orange-700 rounded-xl text-xs font-semibold border border-orange-200 transition shrink-0 cursor-pointer"
+            >
+              <PenTool className="w-3.5 h-3.5" />
+              <span>{requesterSignature ? 'แก้ไข/เปลี่ยนลายเซ็น' : 'วาดหรืออัปโหลดลายเซ็น'}</span>
+            </button>
+          </div>
+
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-1">
+            <label className="flex items-center space-x-2.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={attachSignature}
+                onChange={(e) => setAttachSignature(e.target.checked)}
+                className="w-4 h-4 text-orange-600 rounded border-slate-300 focus:ring-orange-500 cursor-pointer"
+              />
+              <span className="text-xs font-semibold text-slate-700">
+                ประทับลายมือชื่อดิจิทัลในใบคำขอขอใช้รถยนต์ส่วนกลาง
+              </span>
+            </label>
+
+            {/* Signature Preview Thumbnail */}
+            <div className="flex items-center space-x-2.5 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200">
+              <span className="text-[11px] text-slate-500 font-medium shrink-0">ตัวอย่างลายเซ็น:</span>
+              {requesterSignature ? (
+                <div className="h-10 px-2.5 bg-white border border-slate-200 rounded-lg flex items-center justify-center">
+                  <img
+                    src={requesterSignature}
+                    alt="ตัวอย่างลายมือชื่อ"
+                    className="max-h-8 max-w-[130px] object-contain"
+                  />
+                </div>
+              ) : (
+                <span className="text-[11px] text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                  ยังไม่ได้ลงลายมือชื่อ (คลิกปุ่ม &quot;วาดหรืออัปโหลดลายเซ็น&quot;)
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Submit Actions */}
+        <div className="flex justify-end items-center space-x-3 pt-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="px-5 py-3 border border-slate-300 hover:bg-slate-50 rounded-xl text-xs font-semibold text-slate-700 transition"
+          >
+            ยกเลิก
+          </button>
+
+          <button
+            type="submit"
+            className="px-6 py-3 bg-orange-600 hover:bg-orange-700 text-white rounded-xl text-xs font-semibold transition shadow-md shadow-orange-600/30 flex items-center space-x-1.5"
+          >
+            <Send className="w-4 h-4" />
+            <span>{editingBooking ? 'บันทึกการแก้ไข' : 'ส่งใบคำขอขอใช้รถยนต์ส่วนกลาง'}</span>
+          </button>
+        </div>
+
+      </form>
+
+      {/* Modal: Add New Passenger to System Directory */}
+      {showAddPassengerModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-md overflow-hidden animate-in fade-in duration-150">
+            <div className="px-6 py-4 bg-gradient-to-r from-purple-700 to-indigo-700 text-white flex items-center justify-between">
+              <div className="flex items-center space-x-2.5">
+                <UserPlus className="w-5 h-5" />
+                <h3 className="font-bold text-sm">เพิ่มรายชื่อผู้ร่วมเดินทางใหม่เข้าระบบ</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAddPassengerModal(false)}
+                className="text-white/80 hover:text-white p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveNewPassenger} className="p-6 space-y-4">
+              <p className="text-xs text-slate-500">
+                ข้อมูลที่บันทึกจะถูกเก็บลงในระบบทำเนียบผู้ร่วมเดินทางของสำนักงาน เพื่อให้สามารถเลือกใช้ได้ในคำขอครั้งต่อไป
+              </p>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  ชื่อ-นามสกุล *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={newPsgName}
+                  onChange={(e) => setNewPsgName(e.target.value)}
+                  placeholder="เช่น นายรักเกียรติ มั่นคง"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 focus:bg-white focus:ring-2 focus:ring-purple-500 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  ตำแหน่ง / บทบาท
+                </label>
+                <input
+                  type="text"
+                  value={newPsgPosition}
+                  onChange={(e) => setNewPsgPosition(e.target.value)}
+                  placeholder="เช่น นักวิชาการวัฒนธรรม, ผู้แทนชุมชน"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 focus:bg-white focus:ring-2 focus:ring-purple-500 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  หน่วยงาน / สังกัด
+                </label>
+                <input
+                  type="text"
+                  value={newPsgDepartment}
+                  onChange={(e) => setNewPsgDepartment(e.target.value)}
+                  placeholder="เช่น สำนักงานวัฒนธรรมจังหวัดพังงา"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 focus:bg-white focus:ring-2 focus:ring-purple-500 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  เบอร์โทรศัพท์ (ถ้ามี)
+                </label>
+                <input
+                  type="tel"
+                  value={newPsgPhone}
+                  onChange={(e) => setNewPsgPhone(e.target.value)}
+                  placeholder="เช่น 081-234-5678"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 focus:bg-white focus:ring-2 focus:ring-purple-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="flex justify-end space-x-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setShowAddPassengerModal(false)}
+                  className="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl text-xs font-medium hover:bg-slate-50 transition"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition shadow-xs flex items-center space-x-1.5"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  <span>บันทึกลงระบบ</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Add New Driver to Directory */}
+      {showAddDriverModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-md overflow-hidden animate-in fade-in duration-150">
+            <div className="px-6 py-4 bg-gradient-to-r from-orange-600 to-amber-600 text-white flex items-center justify-between">
+              <div className="flex items-center space-x-2.5">
+                <UserPlus className="w-5 h-5" />
+                <div>
+                  <h3 className="font-bold text-sm">เพิ่มรายชื่อพนักงานขับรถใหม่เข้าระบบ</h3>
+                  <p className="text-[10px] text-orange-100">
+                    {addDriverTarget === 'primary' ? 'สำหรับผู้ขับขี่หลัก' : 'สำหรับผู้ขับขี่เสริม / ผู้ช่วยขับขี่'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAddDriverModal(false)}
+                className="text-white/80 hover:text-white p-1 rounded-lg hover:bg-white/10"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveNewDriver} className="p-6 space-y-4">
+              <p className="text-xs text-slate-500">
+                ข้อมูลพนักงานขับรถที่บันทึกจะถูกเก็บลงในระบบทำเนียบผู้ขับขี่ของสำนักงาน เพื่อให้สามารถเลือกใช้ได้ตลอดเวลาในทุกคำขอ
+              </p>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  ชื่อ-นามสกุล ผู้ขับขี่ *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={newDrvName}
+                  onChange={(e) => setNewDrvName(e.target.value)}
+                  placeholder="เช่น นายมานพ จงเจริญ"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 focus:bg-white focus:ring-2 focus:ring-orange-500 focus:outline-none"
+                  autoFocus
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  ตำแหน่ง / สิทธิการขับขี่
+                </label>
+                <input
+                  type="text"
+                  value={newDrvPosition}
+                  onChange={(e) => setNewDrvPosition(e.target.value)}
+                  placeholder="เช่น พนักงานขับรถยนต์ประจำสำนักงาน, พนักงานขับรถจ้างเหมา"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 focus:bg-white focus:ring-2 focus:ring-orange-500 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  กลุ่มงาน / ฝ่าย
+                </label>
+                <input
+                  type="text"
+                  value={newDrvDepartment}
+                  onChange={(e) => setNewDrvDepartment(e.target.value)}
+                  placeholder="เช่น ฝ่ายบริหารทั่วไป"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 focus:bg-white focus:ring-2 focus:ring-orange-500 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  เบอร์โทรศัพท์ติดต่อ (ถ้ามี)
+                </label>
+                <input
+                  type="tel"
+                  value={newDrvPhone}
+                  onChange={(e) => setNewDrvPhone(e.target.value)}
+                  placeholder="เช่น 089-123-4567"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 focus:bg-white focus:ring-2 focus:ring-orange-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="flex justify-end space-x-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setShowAddDriverModal(false)}
+                  className="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl text-xs font-medium hover:bg-slate-50 transition"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-xl text-xs font-bold transition shadow-xs flex items-center space-x-1.5"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  <span>บันทึกและเลือกคนนี้</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Pick User from System Directory */}
+      {showUserPickerModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-lg overflow-hidden animate-in fade-in duration-150 flex flex-col max-h-[85vh]">
+            <div className="px-6 py-4 bg-gradient-to-r from-blue-700 to-indigo-700 text-white flex items-center justify-between shrink-0">
+              <div className="flex items-center space-x-2.5">
+                <Users className="w-5 h-5" />
+                <div>
+                  <h3 className="font-bold text-sm">ดึงรายชื่อจากบุคลากรในระบบ ({users.length} คน)</h3>
+                  <p className="text-[10px] text-blue-100">
+                    {userPickerTarget === 'primary' ? 'เลือกเป็นผู้ขับขี่หลัก' : 'เลือกเป็นผู้ขับขี่เสริม / ผู้ช่วยขับขี่'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowUserPickerModal(false)}
+                className="text-white/80 hover:text-white p-1 rounded-lg hover:bg-white/10"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-4 border-b border-slate-100 bg-slate-50 shrink-0">
+              <div className="relative">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                <input
+                  type="text"
+                  value={userPickerSearch}
+                  onChange={(e) => setUserPickerSearch(e.target.value)}
+                  placeholder="พิมพ์ค้นหาชื่อ, ตำแหน่ง, สังกัด หรือเบอร์โทร..."
+                  className="w-full bg-white border border-slate-200 rounded-xl pl-9 pr-3.5 py-2 text-xs text-slate-800 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  autoFocus
+                />
+              </div>
+            </div>
+
+            <div className="p-4 overflow-y-auto divide-y divide-slate-100 flex-1">
+              {filteredSystemUsers.length === 0 ? (
+                <div className="py-8 text-center text-slate-400 text-xs">
+                  ไม่พบรายชื่อบุคลากรที่ตรงกับคำค้นหา
+                </div>
+              ) : (
+                filteredSystemUsers.map((u) => {
+                  const isCurrentSelected =
+                    userPickerTarget === 'primary' ? driverName === u.name : secondaryDriverName === u.name;
+                  const isDriverRole = u.role === 'driver' || u.roleTitle?.includes('ขับรถ');
+                  return (
+                    <div
+                      key={u.id}
+                      className={`py-3 px-3 rounded-xl flex items-center justify-between hover:bg-slate-50 transition ${
+                        isCurrentSelected ? 'bg-orange-50/60 ring-1 ring-orange-300' : ''
+                      }`}
+                    >
+                      <div className="flex items-center space-x-3 min-w-0 pr-2">
+                        <div
+                          className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-xs shrink-0 ${
+                            isDriverRole ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'
+                          }`}
+                        >
+                          {u.name.slice(0, 1)}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center space-x-2">
+                            <span className="font-semibold text-xs text-slate-800 truncate">{u.name}</span>
+                            {isDriverRole && (
+                              <span className="text-[9px] px-1.5 py-0.5 bg-orange-100 text-orange-700 font-bold rounded">
+                                พนักงานขับรถ
+                              </span>
+                            )}
+                            {u.role === 'admin' && (
+                              <span className="text-[9px] px-1.5 py-0.5 bg-purple-100 text-purple-700 font-medium rounded">
+                                ผู้ดูแลระบบ
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[11px] text-slate-500 truncate">
+                            {u.position || u.roleTitle} {u.department ? `• ${u.department}` : ''}
+                          </div>
+                          {u.phone && (
+                            <div className="text-[10px] text-slate-400">
+                              โทร: {u.phone}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleSelectSystemUserAsDriver(u)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition flex items-center space-x-1 shrink-0 ${
+                          isCurrentSelected
+                            ? 'bg-orange-600 text-white'
+                            : 'bg-blue-50 text-blue-700 hover:bg-blue-600 hover:text-white border border-blue-200 hover:border-transparent'
+                        }`}
+                      >
+                        <UserCheck className="w-3.5 h-3.5" />
+                        <span>{isCurrentSelected ? 'เลือกอยู่' : 'เลือกคนนี้'}</span>
+                      </button>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <div className="p-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between text-xs shrink-0">
+              <span className="text-slate-500 text-[11px]">
+                แสดง {filteredSystemUsers.length} จากทั้งหมด {users.length} รายชื่อ
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowUserPickerModal(false)}
+                className="px-4 py-1.5 border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-100 text-xs font-medium transition"
+              >
+                ปิดหน้าต่าง
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Real-time Booking Collision Alert & Action Dialog */}
+      {showCollisionModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl border border-rose-200 w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="px-6 py-4 bg-gradient-to-r from-rose-700 to-red-600 text-white flex items-center justify-between">
+              <div className="flex items-center space-x-2.5">
+                <AlertTriangle className="w-5 h-5 text-amber-300 animate-bounce" />
+                <div>
+                  <h3 className="font-bold text-sm">แจ้งเตือน: ตรวจพบการจองรถยนต์ซ้ำซ้อน</h3>
+                  <p className="text-[10px] text-rose-100">Real-time Booking Collision Detected</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCollisionModal(false)}
+                className="text-white/80 hover:text-white p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="bg-rose-50 border border-rose-200 rounded-xl p-3.5 space-y-2">
+                <p className="text-xs text-rose-900 leading-relaxed font-medium">
+                  รถยนต์คันที่ท่านเลือกมีคิวการปฏิบัติงานในช่วงเวลา <b>{formatThaiDateRange(date, endDate)}</b> ({startTime} - {endTime} น.) ชนกับคำขอเดิมในระบบ:
+                </p>
+
+                <div className="space-y-1.5 pt-1">
+                  {conflictingBookings.map((b) => (
+                    <div
+                      key={b.id}
+                      className="bg-white p-2.5 rounded-lg border border-rose-100 text-xs shadow-2xs space-y-1"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-rose-700">{b.id}</span>
+                        <span className="text-[10px] px-2 py-0.5 bg-amber-100 text-amber-800 font-semibold rounded">
+                          {b.status === 'approved' ? 'อนุมัติแล้ว' : 'รอพิจารณา'}
+                        </span>
+                      </div>
+                      <div className="text-slate-700">
+                        ผู้ขอ: <b>{b.name}</b> ({b.department})
+                      </div>
+                      <div className="text-[11px] text-slate-500 truncate">
+                        ภารกิจ: {b.purpose}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Action Choices */}
+              <div className="space-y-2 pt-1">
+                {availableAlternativeVehicle && (
+                  <button
+                    type="button"
+                    onClick={() => handleSwitchToAvailableVehicle(availableAlternativeVehicle)}
+                    className="w-full p-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition shadow-xs flex items-center justify-between"
+                  >
+                    <div className="flex items-center space-x-2 text-left">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-200 shrink-0" />
+                      <div>
+                        <div>🔄 สลับไปใช้ {availableAlternativeVehicle.name} ({availableAlternativeVehicle.plate})</div>
+                        <div className="text-[10px] text-emerald-100 font-normal">
+                          คันนี้ว่าง ไม่มีคิวชนในเวลาดังกล่าว (พนักงานขับรถ: {availableAlternativeVehicle.driverName})
+                        </div>
+                      </div>
+                    </div>
+                    <span className="text-[11px] bg-white/20 px-2 py-0.5 rounded">แนะนำ</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowCollisionModal(false);
+                    setBypassCollisionConfirm(true);
+                    executeSaveBooking();
+                  }}
+                  className="w-full p-3 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold transition shadow-xs flex items-center justify-between"
+                >
+                  <div className="flex items-center space-x-2 text-left">
+                    <Send className="w-4 h-4 text-amber-100 shrink-0" />
+                    <div>
+                      <div>ยืนยันส่งคำขอต่อไป (ระบุเหตุจำเป็นเร่งด่วน)</div>
+                      <div className="text-[10px] text-amber-100 font-normal">
+                        ส่งให้ ผอ. หรือผู้มีอำนาจพิจารณาจัดสรรลำดับความสำคัญ
+                      </div>
+                    </div>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setShowCollisionModal(false)}
+                  className="w-full py-2.5 border border-slate-300 text-slate-700 rounded-xl text-xs font-medium hover:bg-slate-50 transition"
+                >
+                  กลับไปแก้ไขวันหรือเวลาเดินทาง
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: User Signature Setup */}
+      <UserSignatureModal
+        isOpen={showSignatureModal}
+        user={{
+          ...currentUser,
+          name: name || currentUser.name,
+          position: position || currentUser.position,
+          signatureUrl: requesterSignature || currentUser.signatureUrl,
+          signatureType: requesterSignatureType || currentUser.signatureType
+        }}
+        onClose={() => setShowSignatureModal(false)}
+        onSaveSignature={(userId, sigUrl, sigType) => {
+          setRequesterSignature(sigUrl);
+          setRequesterSignatureType(sigType);
+          setAttachSignature(true);
+          if (onUpdateUser && currentUser.id === userId) {
+            onUpdateUser(userId, { signatureUrl: sigUrl, signatureType: sigType });
+          }
+        }}
+        onDeleteSignature={(userId) => {
+          setRequesterSignature('');
+          if (onUpdateUser && currentUser.id === userId) {
+            onUpdateUser(userId, { signatureUrl: undefined, signatureType: undefined });
+          }
+        }}
+      />
+
+    </div>
+  );
+};

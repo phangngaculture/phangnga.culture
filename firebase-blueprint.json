@@ -1,0 +1,119 @@
+{
+  "entities": {
+    "bookings": {
+      "title": "Bookings",
+      "description": "Vehicle booking requests and approval records",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "memoNo": { "type": "string" },
+        "date": { "type": "string" },
+        "status": { "type": "string" },
+        "name": { "type": "string" },
+        "userId": { "type": "string" },
+        "username": { "type": "string" },
+        "carId": { "type": "string" },
+        "carName": { "type": "string" },
+        "purpose": { "type": "string" },
+        "destination": { "type": "string" },
+        "driverType": { "type": "string" },
+        "driverName": { "type": "string" },
+        "driverId": { "type": "string" },
+        "driverUsername": { "type": "string" },
+        "missionStatus": { "type": "string" },
+        "startMileage": { "type": "number" },
+        "endMileage": { "type": "number" },
+        "totalDistance": { "type": "number" },
+        "startedByUserId": { "type": "string" },
+        "startedByName": { "type": "string" },
+        "startedAt": { "type": "string" },
+        "returningAt": { "type": "string" },
+        "returningByName": { "type": "string" },
+        "completedByUserId": { "type": "string" },
+        "completedByName": { "type": "string" },
+        "completedAt": { "type": "string" },
+        "lastEditedByUserId": { "type": "string" },
+        "lastEditedByName": { "type": "string" },
+        "lastEditedAt": { "type": "string" }
+      },
+      "required": ["memoNo", "date", "status", "name"]
+    },
+    "vehicles": {
+      "title": "Vehicles",
+      "description": "Official vehicles managed by Phangnga Provincial Cultural Office",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "plate": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["name", "plate", "status"]
+    },
+    "fuelLogs": {
+      "title": "Fuel Logs",
+      "description": "Vehicle fuel refill and inspection records",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "bookingId": { "type": "string" },
+        "carPlate": { "type": "string" },
+        "cost": { "type": "number" }
+      },
+      "required": ["carPlate", "cost"]
+    },
+    "maintenanceRecords": {
+      "title": "Maintenance Records",
+      "description": "Vehicle maintenance service records",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "carId": { "type": "string" },
+        "title": { "type": "string" },
+        "cost": { "type": "number" }
+      },
+      "required": ["carId", "title"]
+    },
+    "users": {
+      "title": "Users",
+      "description": "System users and official personnel profiles",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "username": { "type": "string" },
+        "name": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "director", "officer", "user", "driver"] }
+      },
+      "required": ["username", "name", "role"]
+    },
+    "passengers": {
+      "title": "Passengers",
+      "description": "Frequently selected passenger directory list",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" }
+      },
+      "required": ["name"]
+    },
+    "notifications": {
+      "title": "Notifications",
+      "description": "System alert notifications",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" }
+      },
+      "required": ["title"]
+    },
+    "test": {
+      "title": "Test",
+      "description": "Connection test document",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "status": { "type": "string" }
+      }
+    }
+  }
+}

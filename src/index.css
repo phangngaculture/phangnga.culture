@@ -1,0 +1,1020 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ==========================================================================
+   TH Sarabun New Official Font Definitions (ฟอนต์มาตรฐานเอกสารราชการไทย)
+   ========================================================================== */
+@font-face {
+  font-family: 'TH Sarabun New';
+  src: local('TH Sarabun New'), local('THSarabunNew'),
+       url('https://cdn.jsdelivr.net/gh/lazywasabi/thai-web-fonts@latest/fonts/THSarabunNew/THSarabunNew-Regular.woff2') format('woff2'),
+       url('https://cdn.jsdelivr.net/gh/lazywasabi/thai-web-fonts@latest/fonts/THSarabunNew/THSarabunNew-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'TH Sarabun New';
+  src: local('TH Sarabun New Bold'), local('THSarabunNew-Bold'),
+       url('https://cdn.jsdelivr.net/gh/lazywasabi/thai-web-fonts@latest/fonts/THSarabunNew/THSarabunNew-Bold.woff2') format('woff2'),
+       url('https://cdn.jsdelivr.net/gh/lazywasabi/thai-web-fonts@latest/fonts/THSarabunNew/THSarabunNew-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'TH Sarabun New';
+  src: local('TH Sarabun New Italic'), local('THSarabunNew-Italic'),
+       url('https://cdn.jsdelivr.net/gh/lazywasabi/thai-web-fonts@latest/fonts/THSarabunNew/THSarabunNew-Italic.woff2') format('woff2'),
+       url('https://cdn.jsdelivr.net/gh/lazywasabi/thai-web-fonts@latest/fonts/THSarabunNew/THSarabunNew-Italic.ttf') format('truetype');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'TH Sarabun New';
+  src: local('TH Sarabun New BoldItalic'), local('THSarabunNew-BoldItalic'),
+       url('https://cdn.jsdelivr.net/gh/lazywasabi/thai-web-fonts@latest/fonts/THSarabunNew/THSarabunNew-BoldItalic.woff2') format('woff2'),
+       url('https://cdn.jsdelivr.net/gh/lazywasabi/thai-web-fonts@latest/fonts/THSarabunNew/THSarabunNew-BoldItalic.ttf') format('truetype');
+  font-weight: 700;
+  font-style: italic;
+  font-display: swap;
+}
+
+@layer base {
+  body {
+    font-family: 'Prompt', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    transition: background-color 0.2s ease, color 0.2s ease;
+  }
+}
+
+@keyframes marquee {
+  0% {
+    transform: translateX(100%);
+  }
+  100% {
+    transform: translateX(-100%);
+  }
+}
+
+/* ==========================================================================
+   Dark Mode Theme System (โหมดถนอมสายตาสำหรับเจ้าหน้าที่)
+   ========================================================================== */
+.dark {
+  color-scheme: dark;
+}
+
+.dark body {
+  background-color: #0b1120;
+  color: #f1f5f9;
+}
+
+/* Surfaces and Cards (Excluding Printable A4 Documents) */
+.dark .bg-white:not(#printMemoArea):not(#printPermitArea):not(#printRegisterArea):not(.printable-document):not(#printMemoArea *):not(#printPermitArea *):not(#printRegisterArea *) {
+  background-color: #1e293b !important;
+  border-color: #334155 !important;
+}
+
+.dark .bg-white\/90 {
+  background-color: rgba(30, 41, 59, 0.92) !important;
+  border-color: #334155 !important;
+}
+
+.dark .bg-white\/80 {
+  background-color: rgba(30, 41, 59, 0.85) !important;
+  border-color: #334155 !important;
+}
+
+.dark .bg-slate-50 {
+  background-color: #0f172a !important;
+  border-color: #334155 !important;
+}
+
+.dark .bg-slate-100 {
+  background-color: #1e293b !important;
+  border-color: #334155 !important;
+}
+
+.dark .bg-slate-100\/70 {
+  background-color: #0b1120 !important;
+}
+
+.dark .bg-slate-100\/80 {
+  background-color: #1e293b !important;
+}
+
+.dark .bg-slate-200 {
+  background-color: #334155 !important;
+}
+
+/* Text Colors */
+.dark .text-slate-900:not(#printMemoArea *):not(#printPermitArea *):not(#printRegisterArea *):not(.printable-document *) {
+  color: #f8fafc !important;
+}
+
+.dark .text-slate-800:not(#printMemoArea *):not(#printPermitArea *):not(#printRegisterArea *):not(.printable-document *) {
+  color: #f1f5f9 !important;
+}
+
+.dark .text-slate-700:not(#printMemoArea *):not(#printPermitArea *):not(#printRegisterArea *):not(.printable-document *) {
+  color: #e2e8f0 !important;
+}
+
+.dark .text-slate-600:not(#printMemoArea *):not(#printPermitArea *):not(#printRegisterArea *):not(.printable-document *) {
+  color: #cbd5e1 !important;
+}
+
+.dark .text-slate-500:not(#printMemoArea *):not(#printPermitArea *):not(#printRegisterArea *):not(.printable-document *) {
+  color: #94a3b8 !important;
+}
+
+/* Borders and Dividers */
+.dark .border-slate-200:not(#printMemoArea *):not(#printPermitArea *):not(#printRegisterArea *):not(.printable-document *) {
+  border-color: #334155 !important;
+}
+
+.dark .border-slate-100:not(#printMemoArea *):not(#printPermitArea *):not(#printRegisterArea *):not(.printable-document *) {
+  border-color: #1e293b !important;
+}
+
+.dark .border-slate-300:not(#printMemoArea *):not(#printPermitArea *):not(#printRegisterArea *):not(.printable-document *) {
+  border-color: #475569 !important;
+}
+
+.dark .divide-slate-200 > :not([hidden]) ~ :not([hidden]) {
+  border-color: #334155 !important;
+}
+
+.dark .divide-slate-100 > :not([hidden]) ~ :not([hidden]) {
+  border-color: #1e293b !important;
+}
+
+/* Form Controls in Dark Mode */
+.dark input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="range"]):not(#printMemoArea *):not(#printPermitArea *),
+.dark select:not(#printMemoArea *):not(#printPermitArea *),
+.dark textarea:not(#printMemoArea *):not(#printPermitArea *) {
+  background-color: #0f172a !important;
+  color: #f8fafc !important;
+  border-color: #334155 !important;
+}
+
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: #64748b !important;
+}
+
+/* Soft Alert/Status Badges in Dark Mode */
+.dark .bg-orange-50 {
+  background-color: rgba(234, 88, 12, 0.18) !important;
+  color: #fdba74 !important;
+  border-color: rgba(234, 88, 12, 0.35) !important;
+}
+
+.dark .bg-amber-50 {
+  background-color: rgba(217, 119, 6, 0.18) !important;
+  color: #fcd34d !important;
+  border-color: rgba(217, 119, 6, 0.35) !important;
+}
+
+.dark .bg-emerald-50 {
+  background-color: rgba(5, 150, 105, 0.18) !important;
+  color: #6ee7b7 !important;
+  border-color: rgba(5, 150, 105, 0.35) !important;
+}
+
+.dark .bg-teal-50 {
+  background-color: rgba(13, 148, 136, 0.18) !important;
+  color: #5eead4 !important;
+  border-color: rgba(13, 148, 136, 0.35) !important;
+}
+
+.dark .bg-blue-50 {
+  background-color: rgba(37, 99, 235, 0.18) !important;
+  color: #93c5fd !important;
+  border-color: rgba(37, 99, 235, 0.35) !important;
+}
+
+.dark .bg-purple-50 {
+  background-color: rgba(147, 51, 234, 0.18) !important;
+  color: #d8b4fe !important;
+  border-color: rgba(147, 51, 234, 0.35) !important;
+}
+
+.dark .bg-rose-50 {
+  background-color: rgba(225, 29, 72, 0.18) !important;
+  color: #fda4af !important;
+  border-color: rgba(225, 29, 72, 0.35) !important;
+}
+
+.dark .hover\:bg-slate-100:hover {
+  background-color: #334155 !important;
+}
+
+.dark .hover\:bg-slate-50:hover {
+  background-color: #1e293b !important;
+}
+
+/* Preserve Authentic Official A4 Print Formats in Dark Mode */
+.dark #printMemoArea,
+.dark #printPermitArea,
+.dark #printRegisterArea,
+.dark .printable-document {
+  background-color: #ffffff !important;
+  color: #000000 !important;
+}
+
+.dark #printMemoArea *,
+.dark #printPermitArea *,
+.dark #printRegisterArea *,
+.dark .printable-document * {
+  color: #000000 !important;
+}
+
+.font-sarabun {
+  font-family: 'TH Sarabun New', 'THSarabunNew', 'TH Sarabun PSK', 'Sarabun', Tahoma, sans-serif;
+}
+
+/* Base class for printable official documents in screen and preview */
+.printable-document {
+  box-sizing: border-box;
+  background-color: #ffffff;
+  color: #000000;
+  font-family: 'TH Sarabun New', 'THSarabunNew', 'TH Sarabun PSK', 'Sarabun', Tahoma, sans-serif;
+}
+
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 0;
+  }
+
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  html, body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    overflow: visible !important;
+    height: auto !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  body * {
+    visibility: hidden;
+  }
+
+  #printMemoArea, #printMemoArea *,
+  #printPermitArea, #printPermitArea *,
+  #printRegisterArea, #printRegisterArea *,
+  #printRegisterSingleArea, #printRegisterSingleArea *,
+  #printUserManualArea, #printUserManualArea *,
+  #analyticsReportArea, #analyticsReportArea *,
+  .printable-document, .printable-document * {
+    visibility: visible !important;
+  }
+
+  /* Reset fixed overlays and backdrops during print */
+  .fixed,
+  .overflow-y-auto {
+    position: static !important;
+    overflow: visible !important;
+    background: transparent !important;
+    backdrop-filter: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    height: auto !important;
+    width: auto !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
+
+  /* Standard Official Thai Government A4 Printable Document Container */
+  .printable-document,
+  #printMemoArea,
+  #printPermitArea {
+    position: relative !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    min-width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    box-sizing: border-box !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: #ffffff !important;
+    box-shadow: none !important;
+    border: none !important;
+    color: #000000 !important;
+    transform: none !important;
+    font-family: 'TH Sarabun New', 'THSarabunNew', 'TH Sarabun PSK', 'Sarabun', Tahoma, sans-serif !important;
+    font-size: 13pt !important;
+    line-height: 1.45 !important;
+    overflow: visible !important;
+    page-break-inside: avoid !important;
+    page-break-after: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  /* Ensure child containers stretch to fill 100% of printable A4 width */
+  .printable-document > div,
+  #printMemoArea > div,
+  #printPermitArea > div {
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+  }
+
+  /* ใบขอใช้รถ: คงรายละเอียดทั้งหมดและบีบระยะให้พอดี A4 หน้าเดียว */
+  #printMemoArea.print-memo-page {
+    width: 210mm !important;
+    min-width: 210mm !important;
+    max-width: 210mm !important;
+    height: 297mm !important;
+    min-height: 297mm !important;
+    max-height: 297mm !important;
+    padding: 10mm 12mm 8mm 15mm !important;
+    overflow: hidden !important;
+    font-size: 8.5pt !important;
+    line-height: 1.08 !important;
+  }
+
+  #printMemoArea.print-memo-page .mb-2,
+  #printMemoArea.print-memo-page .mt-2,
+  #printMemoArea.print-memo-page .pt-2 {
+    margin-top: 1mm !important;
+    margin-bottom: 1mm !important;
+    padding-top: 1mm !important;
+  }
+
+  #printMemoArea.print-memo-page .space-y-2 > :not([hidden]) ~ :not([hidden]),
+  #printMemoArea.print-memo-page .space-y-1 > :not([hidden]) ~ :not([hidden]) {
+    margin-top: 1mm !important;
+  }
+
+  #printMemoArea.print-memo-page img {
+    max-height: 14mm !important;
+  }
+
+  #printRegisterArea,
+  #printRegisterSingleArea,
+  #analyticsReportArea {
+    position: relative !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    min-width: 100% !important;
+    max-width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: #ffffff !important;
+    box-shadow: none !important;
+    border: none !important;
+    color: #000000 !important;
+    transform: none !important;
+    overflow: visible !important;
+    page-break-inside: auto !important;
+    break-inside: auto !important;
+  }
+
+  table {
+    border-collapse: collapse !important;
+    width: 100% !important;
+    page-break-inside: auto !important;
+    break-inside: auto !important;
+  }
+
+  thead {
+    display: table-header-group !important;
+  }
+
+  tfoot {
+    display: table-footer-group !important;
+  }
+
+  tr {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  th, td {
+    word-break: break-word !important;
+    overflow-wrap: break-word !important;
+  }
+
+  /* Hide print buttons, controls, and dialog chrome */
+  .no-print,
+  button,
+  .print-hide,
+  [data-print-hide="true"] {
+    display: none !important;
+    visibility: hidden !important;
+  }
+}
+
+/* Native Mobile App Touch & PWA Fullscreen Support */
+html {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  overscroll-behavior-y: contain;
+}
+
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Safe area inset helpers */
+.pb-safe {
+  padding-bottom: max(env(safe-area-inset-bottom, 0px), 16px);
+}
+
+.pt-safe {
+  padding-top: max(env(safe-area-inset-top, 0px), 0px);
+}
+
+/* Hide scrollbar for clean horizontal tab bars on mobile */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* ==========================================================================
+   Modern Minimalist Custom Scrollbars (ลบ Scrollbar ขาวรุ่นเก่าทิ้งทั้งหมด)
+   ========================================================================== */
+
+/* Universal sleek scrollbar styling */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.35) transparent;
+}
+
+/* Chrome / Safari / Edge / Opera webkit scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.35);
+  border-radius: 9999px;
+  transition: background-color 0.2s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.6);
+}
+
+::-webkit-scrollbar-corner,
+::-webkit-scrollbar-button {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+/* Dark mode and Dark Sidebar specific ultra-sleek scrollbar */
+.dark *,
+aside,
+aside *,
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.25) transparent;
+}
+
+.dark ::-webkit-scrollbar-thumb,
+aside ::-webkit-scrollbar-thumb,
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.25);
+  border-radius: 9999px;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover,
+aside ::-webkit-scrollbar-thumb:hover,
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(249, 115, 22, 0.5); /* subtle amber/orange accent on hover */
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 5px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.3);
+  border-radius: 9999px;
+  margin: 4px 0;
+}
+
+/* ==========================================================================
+   3D UI & Visual Depth Transforms (ลูกเล่นมิติและความลึกระดับพรีเมียม)
+   ========================================================================== */
+.perspective-1000 {
+  perspective: 1000px;
+}
+
+.preserve-3d {
+  transform-style: preserve-3d;
+}
+
+.card-3d-hover {
+  transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.28s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.2s ease;
+  will-change: transform, box-shadow;
+}
+
+.card-3d-hover:hover {
+  transform: translateY(-4px) scale(1.008);
+  box-shadow: 0 16px 32px -8px rgba(15, 23, 42, 0.12), 0 4px 12px -2px rgba(234, 88, 12, 0.08);
+}
+
+.dark .card-3d-hover:hover {
+  box-shadow: 0 16px 36px -8px rgba(0, 0, 0, 0.6), 0 0 24px rgba(249, 115, 22, 0.15);
+}
+
+/* Glassmorphism Panel Depth */
+.glass-depth {
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
+}
+
+.dark .glass-depth {
+  background: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(51, 65, 85, 0.6);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.4);
+}
+
+/* Authentic Thai License Plate Badge with Embossed 3D Depth */
+.thai-license-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 8px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  border: 2px solid #1e293b;
+  border-radius: 6px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.9), inset 0 -1px 0 rgba(0, 0, 0, 0.05);
+  font-family: 'Prompt', monospace, sans-serif;
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: 0.02em;
+  position: relative;
+}
+
+.thai-license-badge::before {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  border: 0.5px solid rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+  pointer-events: none;
+}
+
+/* Radiant Status Aura Glows */
+.aura-emerald {
+  box-shadow: 0 0 15px rgba(16, 185, 129, 0.35);
+}
+
+.aura-amber {
+  box-shadow: 0 0 15px rgba(245, 158, 11, 0.35);
+}
+
+.aura-orange {
+  box-shadow: 0 0 18px rgba(249, 115, 22, 0.35);
+}
+
+.aura-blue {
+  box-shadow: 0 0 15px rgba(59, 130, 246, 0.35);
+}
+
+/* Subtle Shimmer Sheen */
+.shimmer-sheen {
+  position: relative;
+  overflow: hidden;
+}
+
+.shimmer-sheen::after {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: linear-gradient(
+    60deg,
+    transparent 30%,
+    rgba(255, 255, 255, 0.15) 50%,
+    transparent 70%
+  );
+  transform: rotate(30deg);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.shimmer-sheen:hover::after {
+  opacity: 1;
+  animation: shine-sweep 1.2s ease forwards;
+}
+
+@keyframes shine-sweep {
+  0% { transform: translateX(-100%) rotate(30deg); }
+  100% { transform: translateX(100%) rotate(30deg); }
+}
+
+/* ==========================================================================
+   Mobile/Tablet App Shell Locking (ล็อกหน้าจอสำหรับ iPad และมือถือ)
+   ========================================================================== */
+/* ==========================================================================
+   UI Customization & Style Overrides (เมนูตกแต่งสไตล์เว็บไซต์)
+   ========================================================================== */
+
+/* Brand Accent Colors */
+:root {
+  --brand-color: #f97316;
+  --brand-color-hover: #ea580c;
+}
+
+.bg-brand {
+  background-color: var(--brand-color) !important;
+}
+.bg-brand:hover {
+  background-color: var(--brand-color-hover) !important;
+}
+.text-brand {
+  color: var(--brand-color) !important;
+}
+.border-brand {
+  border-color: var(--brand-color) !important;
+}
+.ring-brand {
+  --tw-ring-color: var(--brand-color) !important;
+}
+
+/* Custom Font Size Multipliers */
+html.text-sz-small {
+  font-size: 13px !important;
+}
+html.text-sz-medium {
+  font-size: 14.5px !important;
+}
+html.text-sz-large {
+  font-size: 16.5px !important;
+}
+
+html.text-sz-small .text-xs, html.text-sz-small .text-\[10px\], html.text-sz-small .text-\[9px\] { font-size: 10px !important; }
+html.text-sz-small .text-sm { font-size: 12px !important; }
+html.text-sz-small .text-base { font-size: 14px !important; }
+html.text-sz-small .text-lg { font-size: 16px !important; }
+html.text-sz-small .text-xl { font-size: 18px !important; }
+
+html.text-sz-large .text-xs, html.text-sz-large .text-\[10px\], html.text-sz-large .text-\[9px\] { font-size: 12px !important; }
+html.text-sz-large .text-sm { font-size: 15px !important; }
+html.text-sz-large .text-base { font-size: 18px !important; }
+html.text-sz-large .text-lg { font-size: 21px !important; }
+html.text-sz-large .text-xl { font-size: 24px !important; }
+
+/* 3D Curved Ribbon Active Tab Style */
+.curved-ribbon-active {
+  position: relative !important;
+  border-top-right-radius: 0 !important;
+  border-bottom-right-radius: 0 !important;
+  background-color: #121824 !important;
+  color: #38bdf8 !important;
+  z-index: 10;
+}
+
+.curved-ribbon-active::before {
+  content: '';
+  position: absolute;
+  top: -20px;
+  right: 0;
+  width: 20px;
+  height: 20px;
+  background-color: transparent;
+  border-bottom-right-radius: 20px;
+  box-shadow: 0 10px 0 0 #121824;
+  pointer-events: none;
+}
+
+.curved-ribbon-active::after {
+  content: '';
+  position: absolute;
+  bottom: -20px;
+  right: 0;
+  width: 20px;
+  height: 20px;
+  background-color: transparent;
+  border-top-right-radius: 20px;
+  box-shadow: 0 -10px 0 0 #121824;
+  pointer-events: none;
+}
+
+
+
+
+/* AI Minimal Lavender — full-system light dashboard theme */
+.theme-ai-minimal {
+  background: #070b1d !important;
+  color: #e9e7f5 !important;
+}
+
+.theme-ai-minimal .bg-slate-100\/70,
+.theme-ai-minimal .bg-slate-100\/80,
+.theme-ai-minimal .bg-slate-50 {
+  background-color: #070b1d !important;
+}
+
+.theme-ai-minimal .bg-white {
+  background-color: rgba(17, 25, 48, 0.88) !important;
+  border-color: rgba(83, 101, 143, 0.35) !important;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.25) !important;
+}
+
+.theme-ai-minimal .text-slate-900,
+.theme-ai-minimal .text-slate-800 {
+  color: #f1efff !important;
+}
+
+.theme-ai-minimal .text-slate-700,
+.theme-ai-minimal .text-slate-600 {
+  color: #b9b6cc !important;
+}
+
+.theme-ai-minimal .text-slate-500,
+.theme-ai-minimal .text-slate-400 {
+  color: #858aa4 !important;
+}
+
+.theme-ai-minimal .border-slate-200,
+.theme-ai-minimal .border-slate-100 {
+  border-color: rgba(83, 101, 143, 0.35) !important;
+}
+
+.theme-ai-minimal input:not([type="checkbox"]),
+.theme-ai-minimal select,
+.theme-ai-minimal textarea {
+  background-color: #111a31 !important;
+  border-color: rgba(83, 101, 143, 0.55) !important;
+  color: #f1efff !important;
+}
+
+.theme-ai-minimal button.bg-orange-600,
+.theme-ai-minimal button.bg-emerald-600 {
+  background: linear-gradient(135deg, #7657ed, #a777f2) !important;
+}
+
+.theme-ai-minimal .shadow-2xl,
+.theme-ai-minimal .shadow-xl {
+  box-shadow: 0 16px 40px rgba(112, 93, 184, 0.1) !important;
+}
+
+.theme-ai-minimal aside {
+  background: #10182d !important;
+  border-color: rgba(83, 101, 143, 0.38) !important;
+  color: #f1efff !important;
+  box-shadow: 12px 0 36px rgba(0, 0, 0, 0.28) !important;
+}
+
+.theme-ai-minimal .bg-slate-900,
+.theme-ai-minimal .bg-slate-950,
+.theme-ai-minimal .bg-\[\#0c101b\] {
+  background-color: #0b1126 !important;
+}
+
+.theme-ai-minimal .bg-indigo-600,
+.theme-ai-minimal .bg-violet-600,
+.theme-ai-minimal .bg-purple-600 {
+  background: linear-gradient(135deg, #6755f5, #8b5cf6) !important;
+  box-shadow: 0 8px 22px rgba(108, 86, 246, 0.28) !important;
+}
+
+.theme-ai-minimal .rounded-2xl,
+.theme-ai-minimal .rounded-3xl {
+  border-radius: 1.25rem !important;
+}
+
+.theme-ai-minimal ::-webkit-scrollbar-thumb {
+  background: rgba(139, 124, 205, 0.28);
+}
+
+/* AI Minimal Lavender — explicit light/dark palettes */
+html:not(.dark) .theme-ai-minimal {
+  background: #f7f7fc !important;
+  color: #302c45 !important;
+}
+
+html:not(.dark) .theme-ai-minimal .bg-slate-100\/70,
+html:not(.dark) .theme-ai-minimal .bg-slate-100\/80,
+html:not(.dark) .theme-ai-minimal .bg-slate-50 {
+  background-color: #f7f7fc !important;
+}
+
+html:not(.dark) .theme-ai-minimal .bg-white {
+  background-color: rgba(255, 255, 255, 0.92) !important;
+  border-color: #e8e3f7 !important;
+  box-shadow: 0 12px 30px rgba(112, 93, 184, 0.08) !important;
+}
+
+html:not(.dark) .theme-ai-minimal .text-slate-900,
+html:not(.dark) .theme-ai-minimal .text-slate-800 {
+  color: #302c45 !important;
+}
+
+html:not(.dark) .theme-ai-minimal .text-slate-700,
+html:not(.dark) .theme-ai-minimal .text-slate-600 {
+  color: #625d78 !important;
+}
+
+html:not(.dark) .theme-ai-minimal .text-slate-500,
+html:not(.dark) .theme-ai-minimal .text-slate-400 {
+  color: #8b86a2 !important;
+}
+
+html:not(.dark) .theme-ai-minimal .border-slate-200,
+html:not(.dark) .theme-ai-minimal .border-slate-100 {
+  border-color: #e8e3f7 !important;
+}
+
+html:not(.dark) .theme-ai-minimal input:not([type="checkbox"]),
+html:not(.dark) .theme-ai-minimal select,
+html:not(.dark) .theme-ai-minimal textarea {
+  background-color: #ffffff !important;
+  border-color: #e6e0f5 !important;
+  color: #302c45 !important;
+}
+
+html:not(.dark) .theme-ai-minimal aside {
+  background: rgba(255, 255, 255, 0.96) !important;
+  border-color: #ebe7f8 !important;
+  color: #302c45 !important;
+  box-shadow: 12px 0 36px rgba(112, 93, 184, 0.08) !important;
+}
+
+html.dark .theme-ai-minimal {
+  background: #070b1d !important;
+  color: #e9e7f5 !important;
+}
+
+html.dark .theme-ai-minimal .bg-slate-100\/70,
+html.dark .theme-ai-minimal .bg-slate-100\/80,
+html.dark .theme-ai-minimal .bg-slate-50 {
+  background-color: #070b1d !important;
+}
+
+html.dark .theme-ai-minimal .bg-white {
+  background-color: rgba(17, 25, 48, 0.88) !important;
+  border-color: rgba(83, 101, 143, 0.35) !important;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.25) !important;
+}
+
+html.dark .theme-ai-minimal .text-slate-900,
+html.dark .theme-ai-minimal .text-slate-800 {
+  color: #f1efff !important;
+}
+
+html.dark .theme-ai-minimal .text-slate-700,
+html.dark .theme-ai-minimal .text-slate-600 {
+  color: #b9b6cc !important;
+}
+
+html.dark .theme-ai-minimal .text-slate-500,
+html.dark .theme-ai-minimal .text-slate-400 {
+  color: #858aa4 !important;
+}
+
+html.dark .theme-ai-minimal .border-slate-200,
+html.dark .theme-ai-minimal .border-slate-100 {
+  border-color: rgba(83, 101, 143, 0.35) !important;
+}
+
+html.dark .theme-ai-minimal input:not([type="checkbox"]),
+html.dark .theme-ai-minimal select,
+html.dark .theme-ai-minimal textarea {
+  background-color: #111a31 !important;
+  border-color: rgba(83, 101, 143, 0.55) !important;
+  color: #f1efff !important;
+}
+
+html.dark .theme-ai-minimal aside {
+  background: #10182d !important;
+  border-color: rgba(83, 101, 143, 0.38) !important;
+  color: #f1efff !important;
+  box-shadow: 12px 0 36px rgba(0, 0, 0, 0.28) !important;
+}
+
+/* AI Minimal reference-match light mode: bright white canvas + lavender actions */
+html:not(.dark) .theme-ai-minimal {
+  background: linear-gradient(180deg, #ffffff 0%, #f8f8ff 58%, #f2f0ff 100%) !important;
+}
+
+html:not(.dark) .theme-ai-minimal header {
+  background: rgba(255, 255, 255, 0.94) !important;
+  border-color: #eeeafa !important;
+  box-shadow: 0 6px 24px rgba(91, 73, 170, 0.05) !important;
+}
+
+html:not(.dark) .theme-ai-minimal header > div > div:first-child > button {
+  background: linear-gradient(135deg, #f0eaff, #e8ddff) !important;
+  color: #7256ea !important;
+  box-shadow: 0 8px 18px rgba(115, 86, 234, 0.14) !important;
+}
+
+html:not(.dark) .theme-ai-minimal main {
+  background: radial-gradient(circle at 70% 12%, rgba(239, 234, 255, 0.55), transparent 36%);
+}
+
+html:not(.dark) .theme-ai-minimal aside {
+  background: rgba(255, 255, 255, 0.98) !important;
+  border-right-color: #eeeafa !important;
+}
+
+html:not(.dark) .theme-ai-minimal aside button {
+  border-radius: 999px !important;
+}
+
+html:not(.dark) .theme-ai-minimal aside button:hover {
+  background: #f1edff !important;
+  color: #7256ea !important;
+}
+
+html:not(.dark) .theme-ai-minimal .bg-indigo-600,
+html:not(.dark) .theme-ai-minimal .bg-violet-600,
+html:not(.dark) .theme-ai-minimal .bg-purple-600,
+html:not(.dark) .theme-ai-minimal .bg-orange-600 {
+  background: linear-gradient(135deg, #7054ee, #895df2) !important;
+  color: #ffffff !important;
+  box-shadow: 0 10px 24px rgba(112, 84, 238, 0.22) !important;
+}
+
+html:not(.dark) .theme-ai-minimal .rounded-2xl,
+html:not(.dark) .theme-ai-minimal .rounded-3xl {
+  box-shadow: 0 12px 30px rgba(91, 73, 170, 0.08) !important;
+}
+
+/* Mobile app-like press feedback for AI Minimal sidebar icons */
+.theme-ai-minimal .app-menu-button {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  will-change: transform;
+}
+
+.theme-ai-minimal .app-icon-press {
+  position: relative;
+  overflow: hidden;
+  transform: translateZ(0);
+  transition: transform 160ms cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 160ms ease, filter 160ms ease;
+}
+
+.theme-ai-minimal .app-icon-press::after {
+  content: '';
+  position: absolute;
+  inset: 18%;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.38);
+  opacity: 0;
+  transform: scale(0.2);
+  pointer-events: none;
+}
+
+.theme-ai-minimal .app-menu-button:active .app-icon-press {
+  transform: scale(0.82) translateY(2px);
+  filter: brightness(0.92) saturate(1.15);
+  box-shadow: inset 0 3px 7px rgba(15, 23, 42, 0.28), 0 2px 4px rgba(15, 23, 42, 0.12) !important;
+}
+
+.theme-ai-minimal .app-menu-button:active .app-icon-press::after {
+  opacity: 1;
+  animation: ai-icon-ripple 360ms ease-out forwards;
+}
+
+@keyframes ai-icon-ripple {
+  0% { opacity: 0.5; transform: scale(0.2); }
+  100% { opacity: 0; transform: scale(2.4); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .theme-ai-minimal .app-icon-press,
+  .theme-ai-minimal .app-menu-button {
+    transition: none !important;
+    animation: none !important;
+  }
+}

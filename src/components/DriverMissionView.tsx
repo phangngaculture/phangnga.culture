@@ -1,0 +1,934 @@
+import React, { useState, useMemo, useEffect } from 'react';
+import { BookingRequest, Vehicle, User } from '../types';
+import { formatThaiDate } from '../utils/thaiDate';
+import {
+  canUserExecuteMission,
+  getMissionPermissionDetails,
+  isSelfDriveBooking,
+  isThaiNameMatch,
+  validateCanStartMission,
+  validateMissionMileage
+} from '../utils/driverPermissions';
+import { StartMissionModal } from './StartMissionModal';
+import { CompleteMissionModal } from './CompleteMissionModal';
+import {
+  Car,
+  Gauge,
+  Clock,
+  MapPin,
+  CheckCircle2,
+  AlertCircle,
+  Play,
+  Flag,
+  Calendar,
+  User as UserIcon,
+  Search,
+  Filter,
+  Eye,
+  Fuel,
+  ArrowRight,
+  ChevronRight,
+  Sparkles,
+  Info,
+  Layers,
+  Users,
+  Lock,
+  UserCheck,
+  RotateCcw,
+  Send
+} from 'lucide-react';
+
+interface DriverMissionViewProps {
+  bookings: BookingRequest[];
+  vehicles: Vehicle[];
+  currentUser: User;
+  allUsers?: User[];
+  initialTargetBookingId?: string | null;
+  onClearInitialTargetBooking?: () => void;
+  onUpdateBooking: (updated: BookingRequest) => void;
+  onUpdateVehicleOdometer?: (carId: string, newOdometer: number) => void;
+  onViewMemo: (booking: BookingRequest) => void;
+  onNavigateToTracking?: () => void;
+  onNavigateToAssetRegister?: () => void;
+  onSendLineNotification?: (booking: BookingRequest, customNote?: string) => Promise<void> | void;
+}
+
+export const DriverMissionView: React.FC<DriverMissionViewProps> = ({
+  bookings,
+  vehicles,
+  currentUser,
+  allUsers,
+  initialTargetBookingId,
+  onClearInitialTargetBooking,
+  onUpdateBooking,
+  onUpdateVehicleOdometer,
+  onViewMemo,
+  onNavigateToTracking,
+  onNavigateToAssetRegister,
+  onSendLineNotification
+}) => {
+  // Status filter for missions
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [searchQuery, setSearchQuery] = useState<string>('');
+
+  // Missions that current user has authority to execute (as assigned driver or self-drive requester)
+  const myExecutableMissions = useMemo(() => {
+    return bookings.filter((b) => canUserExecuteMission(b, currentUser, allUsers));
+  }, [bookings, currentUser, allUsers]);
+
+  const hasMyMissions = myExecutableMissions.length > 0;
+
+  // Smart initial driver filter:
+  // - Driver role: default to their name or my_missions
+  // - Regular officer who has executable missions: default to my_missions
+  // - Admin/Director without personal mission: default to 'all'
+  const initialDriverFilter = useMemo(() => {
+    if (currentUser.role === 'driver') {
+      return 'my_missions';
+    }
+    if (currentUser.role !== 'admin' && currentUser.role !== 'director' && hasMyMissions) {
+      return 'my_missions';
+    }
+    return 'all';
+  }, [currentUser.role, hasMyMissions]);
+
+  const [selectedDriverFilter, setSelectedDriverFilter] = useState<string>(initialDriverFilter);
+
+  // Modals state
+  const [selectedBookingForStart, setSelectedBookingForStart] = useState<BookingRequest | null>(null);
+  const [selectedBookingForComplete, setSelectedBookingForComplete] = useState<BookingRequest | null>(null);
+  const [successToast, setSuccessToast] = useState<string | null>(null);
+  const [highlightedBookingId, setHighlightedBookingId] = useState<string | null>(null);
+
+  // Auto-open target booking if specified from dashboard or deep link navigation
+  useEffect(() => {
+    if (initialTargetBookingId) {
+      const target = bookings.find((b) => b.id.toLowerCase() === initialTargetBookingId.toLowerCase());
+      if (target) {
+        setHighlightedBookingId(target.id);
+        setStatusFilter('all');
+        setSelectedDriverFilter('all');
+
+        if (canUserExecuteMission(target, currentUser, allUsers)) {
+          if (target.status === 'approved') {
+            setSelectedBookingForStart(target);
+          } else if (target.status === 'in_progress') {
+            setSelectedBookingForComplete(target);
+          }
+        }
+
+        setTimeout(() => {
+          const el = document.getElementById(`mission-card-${target.id}`);
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+        }, 300);
+      }
+      onClearInitialTargetBooking?.();
+    }
+  }, [initialTargetBookingId, bookings, currentUser, allUsers, onClearInitialTargetBooking]);
+
+  // Unique driver names for filter
+  const availableDrivers = useMemo(() => {
+    const set = new Set<string>();
+    bookings.forEach((b) => {
+      if (b.driverName && b.driverName !== 'ไม่ระบุ' && !b.driverName.includes('ยังไม่ระบุ')) {
+        set.add(b.driverName);
+      }
+    });
+    if (currentUser.role === 'driver') set.add(currentUser.name);
+    return Array.from(set);
+  }, [bookings, currentUser]);
+
+  // Filtered missions for Driver view
+  const driverMissions = useMemo(() => {
+    return bookings.filter((b) => {
+      // Driver filter
+      let matchDriver = true;
+      if (selectedDriverFilter === 'my_missions') {
+        matchDriver = canUserExecuteMission(b, currentUser, allUsers);
+      } else if (selectedDriverFilter !== 'all') {
+        matchDriver = Boolean(
+          b.driverName &&
+          (b.driverName === selectedDriverFilter || isThaiNameMatch(b.driverName, selectedDriverFilter))
+        );
+      }
+
+      // Status filter
+      let matchStatus = true;
+      if (statusFilter === 'ready_to_start') {
+        matchStatus = b.status === 'approved';
+      } else if (statusFilter === 'in_progress') {
+        matchStatus = b.status === 'in_progress';
+      } else if (statusFilter === 'completed') {
+        matchStatus = b.status === 'completed';
+      } else if (statusFilter !== 'all') {
+        matchStatus = b.status === statusFilter;
+      }
+
+      // Search query
+      const q = searchQuery.toLowerCase();
+      const matchSearch =
+        !q ||
+        b.id.toLowerCase().includes(q) ||
+        b.memoNo?.toLowerCase().includes(q) ||
+        b.purpose.toLowerCase().includes(q) ||
+        b.destination.toLowerCase().includes(q) ||
+        b.carName.toLowerCase().includes(q) ||
+        b.name.toLowerCase().includes(q);
+
+      return matchDriver && matchStatus && matchSearch;
+    });
+  }, [bookings, selectedDriverFilter, statusFilter, searchQuery, currentUser, allUsers]);
+
+  // KPIs (memoized to avoid recalculation on each render)
+  const readyCount = useMemo(() => bookings.filter((b) => b.status === 'approved').length, [bookings]);
+  const inProgressCount = useMemo(() => bookings.filter((b) => b.status === 'in_progress').length, [bookings]);
+  const completedCount = useMemo(() => bookings.filter((b) => b.status === 'completed').length, [bookings]);
+  const totalKmSum = useMemo(() => bookings.reduce((sum, b) => sum + (b.totalDistance || 0), 0), [bookings]);
+
+  // Safe opening handlers with validation
+  const handleOpenStartModal = (b: BookingRequest) => {
+    const perm = getMissionPermissionDetails(b, currentUser, allUsers);
+    if (!perm.canExecute) {
+      alert(perm.reason || 'ท่านไม่มีสิทธิ์เริ่มงานสำหรับใบคำขอนี้');
+      return;
+    }
+    setSelectedBookingForStart(b);
+  };
+
+  const handleOpenCompleteModal = (b: BookingRequest) => {
+    const perm = getMissionPermissionDetails(b, currentUser, allUsers);
+    if (!perm.canExecute) {
+      alert(perm.reason || 'ท่านไม่มีสิทธิ์บันทึกจบภารกิจสำหรับใบคำขอนี้');
+      return;
+    }
+    setSelectedBookingForComplete(b);
+  };
+
+  // Handlers for starting, returning, and completing mission
+  const handleStartMission = (
+    bookingId: string,
+    startMileage: number,
+    departureTime: string,
+    notes: string
+  ) => {
+    const b = bookings.find((item) => item.id === bookingId);
+    if (!b) return;
+
+    // Check permissions and vehicle conflict
+    const startCheck = validateCanStartMission(b, currentUser, bookings, allUsers);
+    if (!startCheck.canStart) {
+      alert(startCheck.reason || 'ท่านไม่มีสิทธิ์เริ่มงานสำหรับใบคำขอนี้');
+      return;
+    }
+
+    const nowIso = new Date().toISOString();
+    const updated: BookingRequest = {
+      ...b,
+      status: 'in_progress',
+      missionStatus: 'in_progress',
+      startMileage,
+      startMileageTime: departureTime,
+      actualDepartureTime: departureTime,
+      driverNotes: notes ? notes : b.driverNotes,
+      startedByUserId: currentUser.id,
+      startedByName: currentUser.name,
+      startedAt: nowIso,
+      lastEditedByUserId: currentUser.id,
+      lastEditedByName: currentUser.name,
+      lastEditedAt: nowIso
+    };
+
+    onUpdateBooking(updated);
+    setSelectedBookingForStart(null);
+
+    // Show toast
+    setSuccessToast(`เริ่มงานสำเร็จ! บันทึกไมล์ตอนไป ${startMileage.toLocaleString()} กม. (สถานะ: กำลังปฏิบัติภารกิจ) โดย ${currentUser.name}`);
+    setTimeout(() => setSuccessToast(null), 5000);
+  };
+
+  // Quick action: update sub-status to "returning" (กำลังเดินทางกลับ)
+  const handleMarkReturning = (bookingId: string) => {
+    const b = bookings.find((item) => item.id === bookingId);
+    if (!b) return;
+
+    if (!canUserExecuteMission(b, currentUser, allUsers)) {
+      alert('ท่านไม่มีสิทธิ์ปรับสถานะสำหรับใบคำขอนี้');
+      return;
+    }
+
+    const nowIso = new Date().toISOString();
+    const updated: BookingRequest = {
+      ...b,
+      missionStatus: 'returning',
+      lastEditedByUserId: currentUser.id,
+      lastEditedByName: currentUser.name,
+      lastEditedAt: nowIso
+    };
+
+    onUpdateBooking(updated);
+    setSuccessToast(`อัปเดตสถานะสำเร็จ: รถยนต์กำลังเดินทางกลับสำนักงาน`);
+    setTimeout(() => setSuccessToast(null), 4000);
+  };
+
+  const handleCompleteMission = (
+    bookingId: string,
+    data: {
+      endMileage: number;
+      actualReturnTime: string;
+      totalDistance: number;
+      fuelRefilledLiters?: number;
+      fuelRefilledCost?: number;
+      fuelStation?: string;
+      fuelReceiptNo?: string;
+      driverNotes?: string;
+      tripRating?: string;
+    }
+  ) => {
+    const b = bookings.find((item) => item.id === bookingId);
+    if (!b) return;
+
+    if (!canUserExecuteMission(b, currentUser, allUsers)) {
+      alert('ท่านไม่มีสิทธิ์บันทึกจบภารกิจสำหรับใบคำขอนี้');
+      return;
+    }
+
+    const mileageCheck = validateMissionMileage(b.startMileage || 0, data.endMileage);
+    if (!mileageCheck.isValid) {
+      alert(mileageCheck.error || 'เลขไมล์ตอนกลับไม่ถูกต้อง');
+      return;
+    }
+
+    const nowIso = new Date().toISOString();
+    const updated: BookingRequest = {
+      ...b,
+      status: 'completed',
+      missionStatus: 'completed',
+      endMileage: data.endMileage,
+      endMileageTime: data.actualReturnTime,
+      actualReturnTime: data.actualReturnTime,
+      totalDistance: mileageCheck.totalDistance,
+      fuelRefilledLiters: data.fuelRefilledLiters,
+      fuelRefilledCost: data.fuelRefilledCost,
+      fuelStation: data.fuelStation,
+      fuelReceiptNo: data.fuelReceiptNo,
+      driverNotes: data.driverNotes,
+      tripRating: data.tripRating,
+      registeredInAssetControl: true,
+      assetControlRecordedAt: nowIso,
+      completedByUserId: currentUser.id,
+      completedByName: currentUser.name,
+      completedAt: nowIso,
+      lastEditedByUserId: currentUser.id,
+      lastEditedByName: currentUser.name,
+      lastEditedAt: nowIso
+    };
+
+    onUpdateBooking(updated);
+
+    // Also update vehicle's odometer
+    if (onUpdateVehicleOdometer && b.carId) {
+      onUpdateVehicleOdometer(b.carId, data.endMileage);
+    }
+
+    setSelectedBookingForComplete(null);
+
+    // Show toast
+    setSuccessToast(
+      `ภารกิจเสร็จสิ้นเรียบร้อย! ไมล์กลับ ${data.endMileage.toLocaleString()} กม. (ระยะทาง ${mileageCheck.totalDistance} กม.) บันทึกเข้าสมุดทะเบียนคุมของเจ้าหน้าที่พัสดุแล้ว โดย ${currentUser.name}`
+    );
+    setTimeout(() => setSuccessToast(null), 5000);
+  };
+
+  return (
+    <div className="space-y-6">
+      
+      {/* Success Toast */}
+      {successToast && (
+        <div className="bg-emerald-600 text-white px-5 py-3.5 rounded-2xl shadow-xl border border-emerald-500 flex items-center justify-between animate-in slide-in-from-top duration-300">
+          <div className="flex items-center space-x-3 text-xs sm:text-sm font-semibold">
+            <CheckCircle2 className="w-5 h-5 shrink-0 text-emerald-200" />
+            <span>{successToast}</span>
+          </div>
+          <button
+            onClick={() => setSuccessToast(null)}
+            className="text-white/80 hover:text-white text-xs ml-4"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {/* Top Banner */}
+      <div className="bg-gradient-to-r from-slate-900 via-amber-950/80 to-slate-900 rounded-3xl p-6 md:p-8 text-white shadow-xl relative overflow-hidden border border-amber-900/30">
+        <div className="absolute right-0 top-0 bottom-0 w-1/3 bg-gradient-to-l from-amber-500/10 to-transparent pointer-events-none" />
+        
+        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 relative z-10">
+          <div className="space-y-2">
+            <div className="inline-flex items-center space-x-2 bg-amber-500/20 text-amber-300 border border-amber-500/30 px-3 py-1 rounded-full text-xs font-semibold">
+              <Car className="w-3.5 h-3.5" />
+              <span>ระบบงานพนักงานขับรถยนต์ราชการ</span>
+              <span className="text-amber-400">|</span>
+              <span>สำนักงานวัฒนธรรมจังหวัดพังงา</span>
+            </div>
+
+            <h1 className="text-xl md:text-2xl font-bold text-white tracking-tight flex items-center space-x-2.5">
+              <Gauge className="w-6 h-6 text-amber-400 shrink-0" />
+              <span>ศูนย์ปฏิบัติภารกิจคนขับรถ (Driver Missions)</span>
+            </h1>
+            <p className="text-xs md:text-sm text-slate-300 max-w-2xl leading-relaxed">
+              สำหรับพนักงานขับรถและผู้ได้รับมอบหมายขับรถราชการ บันทึกเริ่มงาน (ไมล์ตอนไป) 
+              และเมื่อเสร็จสิ้นภารกิจบันทึกจบงาน (ไมล์ตอนกลับ) พร้อมระบุปริมาณน้ำมันเชื้อเพลิงและตรวจสภาพรถ
+            </p>
+          </div>
+
+          {/* Quick Stats Grid - Interactive Shortcut Filters */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 w-full lg:w-auto">
+            {/* Card 1: รอเริ่มงาน (อนุมัติแล้ว) */}
+            <button
+              type="button"
+              onClick={() => {
+                setStatusFilter(statusFilter === 'ready_to_start' ? 'all' : 'ready_to_start');
+              }}
+              title="คลิกทางลัด: กรองดูเฉพาะรายการที่รอเริ่มงาน"
+              className={`rounded-2xl p-3 border text-center transition-all cursor-pointer group hover:scale-[1.03] active:scale-95 ${
+                statusFilter === 'ready_to_start'
+                  ? 'bg-amber-500/30 border-amber-400 ring-2 ring-amber-400/80 shadow-lg shadow-amber-500/20'
+                  : 'bg-white/10 hover:bg-white/20 border-white/10'
+              }`}
+            >
+              <div className="flex items-center justify-center space-x-1">
+                <span className="text-[10px] text-amber-300 font-bold block uppercase tracking-wide">รอเริ่มงาน</span>
+                <span className="text-[9px] opacity-0 group-hover:opacity-100 transition text-amber-200">🔍</span>
+              </div>
+              <span className="text-xl font-bold text-white mt-0.5 block">{readyCount}</span>
+              <span className="text-[9px] text-slate-300 group-hover:text-amber-200 block">
+                อนุมัติแล้ว {statusFilter === 'ready_to_start' ? '✓ (กำลังกรอง)' : '• คลิกดู'}
+              </span>
+            </button>
+
+            {/* Card 2: กำลังวิ่งงาน (อยู่บนถนน) */}
+            <button
+              type="button"
+              onClick={() => {
+                setStatusFilter(statusFilter === 'in_progress' ? 'all' : 'in_progress');
+              }}
+              title="คลิกทางลัด: กรองดูเฉพาะรายการที่กำลังวิ่งงานอยู่บนถนน"
+              className={`rounded-2xl p-3 border text-center transition-all cursor-pointer group hover:scale-[1.03] active:scale-95 ${
+                statusFilter === 'in_progress'
+                  ? 'bg-amber-500/40 border-amber-300 ring-2 ring-amber-300 shadow-lg shadow-amber-500/30 animate-none'
+                  : 'bg-amber-500/20 hover:bg-amber-500/30 border-amber-400/30 animate-pulse'
+              }`}
+            >
+              <div className="flex items-center justify-center space-x-1">
+                <span className="text-[10px] text-amber-300 font-bold block uppercase tracking-wide">กำลังวิ่งงาน</span>
+                <span className="text-[9px] opacity-0 group-hover:opacity-100 transition text-amber-200">🔍</span>
+              </div>
+              <span className="text-xl font-bold text-amber-300 mt-0.5 block">{inProgressCount}</span>
+              <span className="text-[9px] text-amber-200/90 group-hover:text-amber-100 block">
+                อยู่บนถนน {statusFilter === 'in_progress' ? '✓ (กำลังกรอง)' : '• คลิกดู'}
+              </span>
+            </button>
+
+            {/* Card 3: เสร็จสิ้นแล้ว */}
+            <button
+              type="button"
+              onClick={() => {
+                setStatusFilter(statusFilter === 'completed' ? 'all' : 'completed');
+              }}
+              title="คลิกทางลัด: กรองดูเฉพาะภารกิจที่เสร็จสิ้นแล้ว"
+              className={`rounded-2xl p-3 border text-center transition-all cursor-pointer group hover:scale-[1.03] active:scale-95 ${
+                statusFilter === 'completed'
+                  ? 'bg-emerald-500/40 border-emerald-400 ring-2 ring-emerald-400 shadow-lg shadow-emerald-500/30'
+                  : 'bg-emerald-500/20 hover:bg-emerald-500/30 border-emerald-400/30'
+              }`}
+            >
+              <div className="flex items-center justify-center space-x-1">
+                <span className="text-[10px] text-emerald-300 font-bold block uppercase tracking-wide">เสร็จสิ้นแล้ว</span>
+                <span className="text-[9px] opacity-0 group-hover:opacity-100 transition text-emerald-200">🔍</span>
+              </div>
+              <span className="text-xl font-bold text-emerald-300 mt-0.5 block">{completedCount}</span>
+              <span className="text-[9px] text-emerald-200/90 group-hover:text-emerald-100 block">
+                {statusFilter === 'completed' ? '✓ (กำลังกรอง)' : '• คลิกดู'}
+              </span>
+            </button>
+
+            {/* Card 4: ภารกิจของฉัน */}
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedDriverFilter(selectedDriverFilter === 'my_missions' ? 'all' : 'my_missions');
+              }}
+              title="คลิกทางลัด: กรองดูเฉพาะภารกิจของฉันหรือขับเอง"
+              className={`rounded-2xl p-3 border text-center transition-all cursor-pointer group hover:scale-[1.03] active:scale-95 ${
+                selectedDriverFilter === 'my_missions'
+                  ? 'bg-blue-500/40 border-blue-400 ring-2 ring-blue-400 shadow-lg shadow-blue-500/30'
+                  : 'bg-white/10 hover:bg-white/20 border-white/10'
+              }`}
+            >
+              <div className="flex items-center justify-center space-x-1">
+                <span className="text-[10px] text-blue-300 font-bold block uppercase tracking-wide">ภารกิจของฉัน</span>
+                <span className="text-[9px] opacity-0 group-hover:opacity-100 transition text-blue-200">⭐</span>
+              </div>
+              <span className="text-xl font-bold text-white mt-0.5 block">{myExecutableMissions.length}</span>
+              <span className="text-[9px] text-slate-300 group-hover:text-blue-200 block">
+                {selectedDriverFilter === 'my_missions' ? '✓ (กำลังกรอง)' : '• คลิกดูของฉัน'}
+              </span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* DRIVER MISSIONS WORKFLOW */}
+      <div className="space-y-4">
+          
+          {/* Filters Bar */}
+          <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            
+            {/* Status Tabs */}
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button
+                onClick={() => setStatusFilter('all')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${
+                  statusFilter === 'all'
+                    ? 'bg-slate-900 text-white'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                ทั้งหมด ({bookings.length})
+              </button>
+
+              <button
+                onClick={() => setStatusFilter('ready_to_start')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition flex items-center space-x-1 ${
+                  statusFilter === 'ready_to_start'
+                    ? 'bg-orange-600 text-white'
+                    : 'bg-orange-50 text-orange-800 hover:bg-orange-100'
+                }`}
+              >
+                <Play className="w-3 h-3" />
+                <span>รอเริ่มงาน ({readyCount})</span>
+              </button>
+
+              <button
+                onClick={() => setStatusFilter('in_progress')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition flex items-center space-x-1 ${
+                  statusFilter === 'in_progress'
+                    ? 'bg-amber-600 text-white'
+                    : 'bg-amber-50 text-amber-800 hover:bg-amber-100'
+                }`}
+              >
+                <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                <span>กำลังปฏิบัติหน้าที่ ({inProgressCount})</span>
+              </button>
+
+              <button
+                onClick={() => setStatusFilter('completed')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition flex items-center space-x-1 ${
+                  statusFilter === 'completed'
+                    ? 'bg-emerald-600 text-white'
+                    : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
+                }`}
+              >
+                <CheckCircle2 className="w-3 h-3" />
+                <span>เสร็จสิ้น & ลงคุมแล้ว ({completedCount})</span>
+              </button>
+            </div>
+
+            {/* Driver Filter & Search */}
+            <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+              <div className="flex items-center space-x-1 bg-slate-100 px-2 py-1 rounded-xl border border-slate-200 text-xs">
+                <Users className="w-3.5 h-3.5 text-slate-500" />
+                <select
+                  value={selectedDriverFilter}
+                  onChange={(e) => setSelectedDriverFilter(e.target.value)}
+                  className="bg-transparent text-xs font-medium text-slate-800 focus:outline-none py-1"
+                >
+                  <option value="all">คนขับรถทุกคน (ทั้งหมด)</option>
+                  {hasMyMissions && (
+                    <option value="my_missions" className="font-bold text-orange-700">
+                      ⭐ ภารกิจของฉัน / ขับเอง ({myExecutableMissions.length})
+                    </option>
+                  )}
+                  {availableDrivers.map((d) => (
+                    <option key={d} value={d}>
+                      {d}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="relative flex-grow md:w-48">
+                <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="ค้นหาภารกิจ/สถานที่..."
+                  className="w-full pl-8 pr-3 py-1.5 rounded-xl border border-slate-200 text-xs text-slate-800 focus:border-orange-500 focus:ring-1 focus:ring-orange-200"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Missions Cards List */}
+          {highlightedBookingId && (
+            <div className="bg-emerald-50 border-2 border-emerald-400 p-4 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-emerald-950 shadow-sm animate-in fade-in duration-300">
+              <div className="flex items-center space-x-2.5">
+                <span className="text-2xl">🎯</span>
+                <div>
+                  <div className="font-bold text-emerald-900 flex items-center space-x-2">
+                    <span>เปิดดูภารกิจตามลิงก์แจ้งเตือน LINE</span>
+                    <span className="bg-emerald-200 text-emerald-900 px-2 py-0.5 rounded-full font-mono text-[11px]">{highlightedBookingId}</span>
+                  </div>
+                  <div className="text-emerald-700 text-[11px] mt-0.5">
+                    ระบบได้เลื่อนหน้าจอและไฮไลท์การ์ดภารกิจนี้ให้ท่านแล้ว พร้อมให้กดเริ่มงานหรือกรอกไมล์ได้ทันที
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setHighlightedBookingId(null)}
+                className="px-3 py-1.5 bg-white border border-emerald-300 rounded-xl text-emerald-800 font-semibold hover:bg-emerald-100 transition shrink-0 cursor-pointer text-xs"
+              >
+                ปิดการเน้น
+              </button>
+            </div>
+          )}
+
+          {driverMissions.length === 0 ? (
+            <div className="bg-white rounded-3xl p-12 text-center border border-slate-200 space-y-3">
+              <Car className="w-12 h-12 text-slate-300 mx-auto" />
+              <h3 className="text-sm font-bold text-slate-700">ไม่พบรายการภารกิจที่ตรงตามเงื่อนไข</h3>
+              <p className="text-xs text-slate-500">
+                ลองปรับตัวกรองสถานะ หรือเปลี่ยนตัวเลือกคนขับรถ
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-4">
+              {driverMissions.map((b) => {
+                const isReadyToStart = b.status === 'approved';
+                const isInProgress = b.status === 'in_progress';
+                const isCompleted = b.status === 'completed';
+                const vehicle = vehicles.find((v) => v.id === b.carId);
+                const isHighlighted = highlightedBookingId === b.id;
+
+                return (
+                  <div
+                    key={b.id}
+                    id={`mission-card-${b.id}`}
+                    className={`rounded-3xl border transition-all p-5 sm:p-6 card-3d-hover ${
+                      isHighlighted
+                        ? 'border-emerald-500 ring-4 ring-emerald-500/30 bg-emerald-50/40 shadow-lg'
+                        : isInProgress
+                        ? 'border-amber-400 dark:border-amber-500/40 ring-2 ring-amber-400/20 bg-gradient-to-br from-amber-50/10 to-amber-100/5 dark:from-amber-950/15 dark:to-amber-900/5 shadow-xs hover:shadow-md'
+                        : isReadyToStart
+                        ? 'border-orange-200 dark:border-orange-500/20 hover:border-orange-300 bg-gradient-to-br from-orange-50/50 to-amber-50/30 dark:from-orange-950/10 dark:to-amber-950/5 shadow-xs hover:shadow-md'
+                        : 'border-slate-200 dark:border-slate-800 bg-gradient-to-br from-white to-slate-50/50 dark:from-slate-800/40 dark:to-slate-900/60 shadow-xs hover:shadow-md'
+                    }`}
+                  >
+                    <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+                      
+                      {/* Left: Mission Info */}
+                      <div className="space-y-2 flex-grow">
+                        
+                        {/* Badges Row */}
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-mono font-bold text-xs text-slate-900 bg-slate-100 px-2.5 py-0.5 rounded-lg border border-slate-200">
+                            {b.id}
+                          </span>
+
+                          {/* Dynamic Status Badge */}
+                          {isInProgress ? (
+                            <div className="flex items-center gap-1.5">
+                              <span className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-500 text-white shadow-xs">
+                                <span className="w-2 h-2 rounded-full bg-white animate-ping" />
+                                <span>กำลังปฏิบัติภารกิจ (อยู่บนถนน)</span>
+                              </span>
+                              {b.missionStatus === 'returning' && (
+                                <span className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-full text-xs font-bold bg-purple-600 text-white shadow-xs">
+                                  <RotateCcw className="w-3 h-3 animate-spin" />
+                                  <span>กำลังเดินทางกลับสำนักงาน</span>
+                                </span>
+                              )}
+                            </div>
+                          ) : isReadyToStart ? (
+                            <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-orange-100 text-orange-800 border border-orange-300">
+                              <Play className="w-3 h-3 text-orange-600" />
+                              <span>อนุมัติแล้ว — พร้อมกดเริ่มงาน</span>
+                            </span>
+                          ) : isCompleted ? (
+                            <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                              <span>เสร็จสิ้นภารกิจ & ลงทะเบียนคุมแล้ว</span>
+                            </span>
+                          ) : (
+                            <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-700 border border-slate-200">
+                              {b.status}
+                            </span>
+                          )}
+
+                          <span className="text-[11px] text-slate-500 flex items-center">
+                            <Calendar className="w-3.5 h-3.5 mr-1 text-slate-400" />
+                            {formatThaiDate(b.date, 'short')}
+                          </span>
+
+                          {(b.startTime || b.actualDepartureTime) && (
+                            <span className="text-[11px] text-slate-500 flex items-center">
+                              <Clock className="w-3.5 h-3.5 mr-1 text-slate-400" />
+                              {b.actualDepartureTime || b.startTime} - {b.actualReturnTime || b.endTime || 'เสร็จสิ้น'}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Title & Purpose */}
+                        <h3 className="text-base font-bold text-slate-900 leading-snug">
+                          {b.purpose}
+                        </h3>
+
+                        {/* Details Grid */}
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs text-slate-600 pt-1">
+                          <div className="flex items-center text-orange-700 font-medium">
+                            <MapPin className="w-4 h-4 mr-1.5 text-orange-500 shrink-0" />
+                            <span className="truncate">{b.destination}</span>
+                          </div>
+
+                          <div className="flex items-center text-teal-800 font-medium">
+                            <Car className="w-4 h-4 mr-1.5 text-teal-600 shrink-0" />
+                            <span className="truncate">{b.carName}</span>
+                          </div>
+
+                          <div className="flex items-center text-slate-700">
+                            <UserIcon className="w-4 h-4 mr-1.5 text-slate-400 shrink-0" />
+                            <span>
+                              {isSelfDriveBooking(b) ? (
+                                <span className="text-blue-700 font-semibold">ผู้ขอขับเอง ({b.name})</span>
+                              ) : (
+                                <span>พนักงานขับรถ: <strong>{b.driverName || 'ไม่ระบุ'}</strong></span>
+                              )}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Audit & Driver Identity Tags */}
+                        <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                          {isSelfDriveBooking(b) ? (
+                            <span className="inline-flex items-center space-x-1 bg-blue-50 border border-blue-200 text-blue-800 px-2 py-0.5 rounded-lg text-[10px] font-semibold">
+                              <span>🚗 ผู้ขอขับขี่ด้วยตนเอง ({b.name} - {b.department})</span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center space-x-1 bg-indigo-50 border border-indigo-200 text-indigo-800 px-2 py-0.5 rounded-lg text-[10px] font-semibold">
+                              <span>👔 ผู้ขับขี่: {b.driverName} {b.driverUsername ? `(@${b.driverUsername})` : ''}</span>
+                            </span>
+                          )}
+
+                          {b.startedByName && (
+                            <span className="inline-flex items-center space-x-1 bg-slate-100 border border-slate-200 text-slate-600 px-2 py-0.5 rounded-lg text-[10px]">
+                              <UserCheck className="w-3 h-3 text-slate-500" />
+                              <span>เริ่มงานโดย: {b.startedByName}</span>
+                            </span>
+                          )}
+
+                          {b.completedByName && (
+                            <span className="inline-flex items-center space-x-1 bg-emerald-50 border border-emerald-200 text-emerald-800 px-2 py-0.5 rounded-lg text-[10px]">
+                              <UserCheck className="w-3 h-3 text-emerald-600" />
+                              <span>บันทึกจบโดย: {b.completedByName}</span>
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Departure & Return Mileage Live Tag */}
+                        {(b.startMileage || b.endMileage) && (
+                          <div className="flex flex-wrap items-center gap-3 pt-2">
+                            {b.startMileage && (
+                              <div className="inline-flex items-center space-x-1.5 bg-orange-50 border border-orange-200 px-3 py-1 rounded-xl text-xs font-semibold text-orange-900">
+                                <Gauge className="w-3.5 h-3.5 text-orange-600" />
+                                <span>ไมล์ตอนไป: <strong>{b.startMileage.toLocaleString()} กม.</strong></span>
+                                {b.actualDepartureTime && (
+                                  <span className="text-orange-600 font-normal">({b.actualDepartureTime} น.)</span>
+                                )}
+                              </div>
+                            )}
+
+                            {b.endMileage && (
+                              <div className="inline-flex items-center space-x-1.5 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-xl text-xs font-semibold text-emerald-900">
+                                <Flag className="w-3.5 h-3.5 text-emerald-600" />
+                                <span>ไมล์ตอนกลับ: <strong>{b.endMileage.toLocaleString()} กม.</strong></span>
+                                {b.actualReturnTime && (
+                                  <span className="text-emerald-600 font-normal">({b.actualReturnTime} น.)</span>
+                                )}
+                              </div>
+                            )}
+
+                            {b.totalDistance ? (
+                              <div className="inline-flex items-center space-x-1 bg-slate-900 text-white px-2.5 py-1 rounded-xl text-xs font-bold">
+                                <span>ระยะทางรวม: +{b.totalDistance} กม.</span>
+                              </div>
+                            ) : null}
+
+                            {b.fuelRefilledLiters ? (
+                              <div className="inline-flex items-center space-x-1 bg-amber-50 border border-amber-200 text-amber-900 px-2.5 py-1 rounded-xl text-xs">
+                                <Fuel className="w-3 h-3 text-amber-600" />
+                                <span>เติมน้ำมัน: {b.fuelRefilledLiters} ล. ({b.fuelRefilledCost} บ.)</span>
+                              </div>
+                            ) : null}
+                          </div>
+                        )}
+
+                        {b.driverNotes && (
+                          <p className="text-[11px] text-slate-500 italic bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200/60 inline-block">
+                            บันทึกคนขับ: &ldquo;{b.driverNotes}&rdquo;
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Right: Driver Action Workflow Button */}
+                      <div className="flex flex-row lg:flex-col items-stretch sm:items-end gap-2 shrink-0 w-full lg:w-auto pt-3 lg:pt-0 border-t lg:border-t-0 border-slate-100">
+                        
+                        {/* CASE 1: READY TO START -> START MISSION BUTTON */}
+                        {isReadyToStart && (
+                          canUserExecuteMission(b, currentUser, allUsers) ? (
+                            <button
+                              onClick={() => handleOpenStartModal(b)}
+                              className="w-full sm:w-auto px-5 py-3 bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-700 hover:to-amber-700 text-white rounded-2xl text-xs sm:text-sm font-bold transition shadow-lg shadow-orange-600/30 flex items-center justify-center space-x-2 cursor-pointer"
+                            >
+                              <Play className="w-4 h-4 fill-white" />
+                              <span>กดเริ่มงาน (กรอกไมล์ไป)</span>
+                            </button>
+                          ) : (
+                            <div className="flex items-center space-x-1.5 px-3 py-2 bg-slate-100 border border-slate-200 text-slate-600 rounded-xl text-xs font-medium">
+                              <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                              <span>
+                                {isSelfDriveBooking(b)
+                                  ? `รอผู้ขอใช้รถ (${b.name}) กดเริ่มงาน`
+                                  : b.driverName && b.driverName !== 'ไม่ระบุ' && !b.driverName.includes('ยังไม่ระบุ')
+                                  ? `รอ ${b.driverName} กดเริ่มงาน`
+                                  : 'ยังไม่ระบุพนักงานขับรถ'}
+                              </span>
+                            </div>
+                          )
+                        )}
+
+                        {/* CASE 2: IN PROGRESS -> COMPLETE MISSION BUTTON */}
+                        {isInProgress && (
+                          canUserExecuteMission(b, currentUser, allUsers) ? (
+                            <div className="flex flex-col sm:flex-row lg:flex-col gap-2 w-full sm:w-auto">
+                              {b.missionStatus !== 'returning' && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleMarkReturning(b.id)}
+                                  className="w-full sm:w-auto px-3.5 py-2 bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-200 rounded-2xl text-xs font-semibold transition flex items-center justify-center space-x-1.5 shadow-2xs cursor-pointer"
+                                  title="กดแจ้งว่ากำลังเดินทางกลับสำนักงาน"
+                                >
+                                  <RotateCcw className="w-3.5 h-3.5 text-purple-600" />
+                                  <span>แจ้งกำลังเดินทางกลับ</span>
+                                </button>
+                              )}
+                              <button
+                                onClick={() => handleOpenCompleteModal(b)}
+                                className="w-full sm:w-auto px-5 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-2xl text-xs sm:text-sm font-bold transition shadow-lg shadow-emerald-600/30 flex items-center justify-center space-x-2 animate-bounce cursor-pointer"
+                              >
+                                <CheckCircle2 className="w-4 h-4" />
+                                <span>ขับเสร็จแล้ว (กรอกไมล์กลับ)</span>
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center space-x-1.5 px-3 py-2 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl text-xs font-medium">
+                              <Car className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                              <span>
+                                {isSelfDriveBooking(b)
+                                  ? `กำลังขับขี่โดย ${b.name}`
+                                  : `กำลังปฏิบัติงานโดย ${b.driverName || 'ผู้ขับรถ'}`}
+                              </span>
+                            </div>
+                          )
+                        )}
+
+                        {/* CASE 3: COMPLETED -> BADGE */}
+                        {isCompleted && (
+                          onNavigateToAssetRegister ? (
+                            <button
+                              onClick={onNavigateToAssetRegister}
+                              className="w-full sm:w-auto px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-xl text-xs font-semibold transition flex items-center justify-center space-x-1.5"
+                              title="เปิดดูในเมนูสมุดทะเบียนคุม"
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                              <span>บันทึกไมล์กลับเรียบร้อย (ดูทะเบียนคุม) &rarr;</span>
+                            </button>
+                          ) : (
+                            <div className="w-full sm:w-auto px-3.5 py-2 bg-emerald-50 text-emerald-800 border border-emerald-300 rounded-xl text-xs font-semibold flex items-center justify-center space-x-1.5">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                              <span>เสร็จสิ้นภารกิจแล้ว (บันทึกไมล์กลับเรียบร้อย)</span>
+                            </div>
+                          )
+                        )}
+
+                        <div className="flex items-center space-x-2">
+                          <button
+                            onClick={() => onViewMemo(b)}
+                            className="px-3 py-2 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-xl text-xs font-medium transition flex items-center space-x-1 cursor-pointer"
+                            title="ดูใบคำขอขอใช้รถยนต์ส่วนกลาง"
+                          >
+                            <Eye className="w-3.5 h-3.5 text-orange-600" />
+                            <span>ดูใบคำขอ</span>
+                          </button>
+
+                          {onSendLineNotification && (
+                            <button
+                              type="button"
+                              onClick={() => onSendLineNotification(b)}
+                              className="px-3 py-2 bg-emerald-50 hover:bg-emerald-100 active:scale-95 text-emerald-700 border border-emerald-300 rounded-xl text-xs font-semibold transition flex items-center space-x-1 cursor-pointer"
+                              title="ส่งแจ้งเตือนภารกิจนี้เข้า LINE พร้อมปุ่มเปิดดูงาน"
+                            >
+                              <Send className="w-3.5 h-3.5 text-[#06c755]" />
+                              <span>ส่งเข้า LINE</span>
+                            </button>
+                          )}
+
+                          {isInProgress && onNavigateToTracking && (
+                            <button
+                              onClick={onNavigateToTracking}
+                              className="px-3 py-2 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 rounded-xl text-xs font-medium transition"
+                              title="เปิด GPS ติดตามสด"
+                            >
+                              <span>GPS Live</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+      </div>
+
+      {/* Start Mission Modal */}
+      {selectedBookingForStart && (
+        <StartMissionModal
+          booking={selectedBookingForStart}
+          vehicle={vehicles.find((v) => v.id === selectedBookingForStart.carId)}
+          currentUser={currentUser}
+          allUsers={allUsers}
+          allBookings={bookings}
+          onClose={() => setSelectedBookingForStart(null)}
+          onConfirmStart={handleStartMission}
+        />
+      )}
+
+      {/* Complete Mission Modal */}
+      {selectedBookingForComplete && (
+        <CompleteMissionModal
+          booking={selectedBookingForComplete}
+          vehicle={vehicles.find((v) => v.id === selectedBookingForComplete.carId)}
+          currentUser={currentUser}
+          allUsers={allUsers}
+          onClose={() => setSelectedBookingForComplete(null)}
+          onConfirmComplete={handleCompleteMission}
+        />
+      )}
+    </div>
+  );
+};
